@@ -1,0 +1,36 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Path
+Target = usr/lib/initcpio/*
+Target = usr/lib/firmware/*
+Target = usr/lib/modules/*/extramodules/
+Target = usr/src/*/dkms.conf
+Target = usr/lib/systemd/systemd
+Target = usr/lib/systemd/systemd-udevd
+Target = usr/lib/systemd/boot/efi/systemd-bootaa64.efi
+Target = usr/bin/cryptsetup
+Target = usr/bin/lvm
+Target = usr/bin/mdadm
+Target = usr/bin/pdata_tools
+Target = usr/lib/libcryptsetup.so
+Target = usr/lib/libp11-kit.so
+Target = usr/lib/libpcsclite.so
+Target = usr/lib/modprobe.d/
+
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Package
+Target = linux
+Target = linux-dtbs
+Target = mkinitcpio
+Target = mkinitcpio-git
+Target = systemd
+
+[Action]
+Description = Refreshing Raspberry Pi 4 EFI kernel, initramfs and systemd-boot...
+When = PostTransaction
+Exec = /usr/local/sbin/rpi4-update-boot

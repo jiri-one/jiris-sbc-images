@@ -1,0 +1,12 @@
+[Unit]
+Description=Expand the ODROID-M1S root partition and filesystem
+After=local-fs.target
+ConditionPathExists=!/var/lib/odroid-m1s/root-expanded
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/odroid-m1s-grow-root
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

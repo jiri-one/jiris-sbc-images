@@ -1,0 +1,41 @@
+Raspberry Pi 4 UEFI firmware v1.53: notices and source locations
+
+Firmware release:
+https://github.com/pftf/RPi4/releases/tag/v1.53
+pftf/RPi4 commit ab5d6c98fcf9c38a95b11ea862e701d9c27d5653
+Release ZIP SHA256: ca9973e2a7a546b3df871cfb7382e656829114b6dfa424f40dc67cc90a217d88
+
+RPI_EFI.fd: pftf-LICENSE.txt and EDK2-LICENSE.txt. The latter is the
+identical top-level license in both pinned TianoCore source repositories:
+https://github.com/tianocore/edk2/tree/2970e5699ba6267f3384ffab20f96647578aebc8
+https://github.com/tianocore/edk2-platforms/tree/c8295e076affae5cf04fd4234db13a0e025f44e1
+The PlatformSecureLib copyright notice is also retained.
+
+Components selected by the RPi4 firmware build:
+- ARM Trusted Firmware: TrustedFirmware-LICENSE.txt and TrustedFirmware-README.txt.
+  https://github.com/tianocore/edk2-non-osi/tree/7ac12d81e02b323bffdf1ef3c188ea33c2185c91/Platform/RaspberryPi/RPi4/TrustedFirmware
+- OpenSSL: OpenSSL-LICENSE.txt.
+  https://github.com/openssl/openssl/tree/8cf17aaeb4599f8af87fefd810b5b5fee90fe69e
+- libfdt: libfdt-BSD-2-Clause.txt and libfdt-COPYRIGHTS.txt.
+  https://github.com/devicetree-org/pylibfdt/tree/cfff805481bdea27f900c32698171286542b8d3c
+- LZMA decompressor: LZMA-SDK-README.txt.
+  https://github.com/tianocore/edk2/tree/2970e5699ba6267f3384ffab20f96647578aebc8/MdeModulePkg/Library/LzmaCustomDecompressLib
+
+start4.elf and fixup4.dat: RaspberryPi-LICENCE.broadcom.
+Their bytes match raspberrypi/firmware at:
+https://github.com/raspberrypi/firmware/tree/3d301dd924bcd758a4c8cb19fe8531031f033f43
+
+Device trees and overlays: RaspberryPi-COPYING.linux and RaspberryPi-README.txt.
+The three bcm2711-rpi-*.dtb files match firmware commit
+b49983637106e5fb33e2ae60d8c15a53187541e4; its extra/git_hash identifies:
+https://github.com/raspberrypi/linux/tree/4ce59edc8d949410d322873b35767e95a5ce5822
+The miniuart-bt.dtbo and upstream-pi4.dtbo bytes match firmware commit
+3d301dd924bcd758a4c8cb19fe8531031f033f43; its extra/git_hash identifies:
+https://github.com/raspberrypi/linux/tree/89586905b8603e545cce9089a81f5f35d65bc998
+
+The blobs supplied in the release's firmware/ directory use
+Cypress-LICENCE.txt; Cypress-README.txt describes those files.
+Their pinned source location is:
+https://github.com/pftf/RPi4/tree/ab5d6c98fcf9c38a95b11ea862e701d9c27d5653/firmware
+
+Ports package licenses are installed separately under /usr/share/licenses.

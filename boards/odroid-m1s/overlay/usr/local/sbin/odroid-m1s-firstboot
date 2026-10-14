@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ ! -e /var/lib/odroid-m1s/initialized ]] || exit 0
+# Also guard direct invocation: a build-time clock floor is not an NTP sync.
+if [[ ! -e /run/systemd/timesync/synchronized ]]; then
+    echo 'Package keyring initialization is waiting for time synchronization.' >&2
+    exit 1
+fi
+pacman-key --init
+pacman-key --populate archlinux
+pacman-key --add /usr/share/odroid-m1s/ports-public.key
+pacman-key --lsign-key 9B2C213B21883BB65CE2FB900CF25682E6BA0751
+install -d -m 755 /var/lib/odroid-m1s
+touch /var/lib/odroid-m1s/initialized

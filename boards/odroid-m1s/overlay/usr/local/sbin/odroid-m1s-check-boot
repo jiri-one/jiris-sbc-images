@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ ${M1S_IMAGE_BUILD:-0} == 1 ]] && exit 0
+[[ -f /etc/odroid-m1s-image.conf ]] || { echo 'Missing M1S image configuration.' >&2; exit 1; }
+# shellcheck source=/dev/null
+source /etc/odroid-m1s-image.conf
+mountpoint -q /boot || { echo 'Mount /boot before updating kernel or initramfs packages.' >&2; exit 1; }
+actual_uuid=$(findmnt -n -o UUID --target /boot)
+[[ $actual_uuid == "$BOOT_FS_UUID" ]] || { echo 'Unexpected /boot filesystem UUID.' >&2; exit 1; }
+[[ -w /boot ]] || { echo '/boot is not writable.' >&2; exit 1; }

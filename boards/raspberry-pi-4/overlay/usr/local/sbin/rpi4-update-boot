@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $EUID -eq 0 ]] || { echo 'Run as root.' >&2; exit 1; }
+if [[ ! -f /etc/rpi4-image.conf ]]; then
+    echo 'No image configuration yet; the image builder will prepare boot files.'
+    exit 0
+fi
+
+# Also serialize manual refreshes with package hooks. This lock lives on rootfs,
+# because the ESP may not be mounted and FAT does not implement Unix locks.
+mkdir -p /run/lock
+exec 9>/run/lock/rpi4-update-boot.lock
+flock -x 9
+/usr/local/sbin/rpi4-check-boot
+# shellcheck source=/dev/null
+source /etc/rpi4-image.conf
+
+kernel_list=$(pacman -Qql linux | sed -n '\|^/usr/lib/modules/[^/]*/vmlinuz$|p')
+[[ -n $kernel_list ]] || { echo 'No package-owned linux kernel found.' >&2; exit 1; }
+mapfile -t kernels <<< "$kernel_list"
+[[ ${#kernels[@]} -eq 1 ]] || { echo 'Expected exactly one package-owned linux kernel.' >&2; exit 1; }
+kernel=${kernels[0]}
+kver=$(basename "$(dirname "$kernel")")
+[[ $kver =~ ^[0-9A-Za-z._+-]+$ && $kver != . && $kver != .. ]] || {
+    echo 'Invalid kernel version.' >&2
+    exit 1
+}
+dtb="/usr/lib/modules/$kver/dtb/broadcom/bcm2711-rpi-4-b.dtb"
+bootloader=/usr/lib/systemd/boot/efi/systemd-bootaa64.efi
+[[ -s $dtb ]] || { echo 'Matching Raspberry Pi 4 DTB is missing.' >&2; exit 1; }
+[[ $(pacman -Qqo -- "$dtb") == linux-dtbs ]] || { echo 'DTB is not owned by linux-dtbs.' >&2; exit 1; }
+[[ $(pacman -Qqo -- "$bootloader") == systemd ]] || { echo 'EFI bootloader is not owned by systemd.' >&2; exit 1; }
+python /usr/local/lib/rpi4/validate-efi.py "$kernel" "$bootloader"
+
+if [[ ${RPI4_IMAGE_BUILD:-0} == 1 ]]; then
+    [[ -s /boot/initramfs-linux.img && -f /usr/share/rpi4/initramfs-kernel &&
+        $(cat /usr/share/rpi4/initramfs-kernel) == "$kver" ]] || {
+        echo 'The image-builder initramfs does not match the installed kernel.' >&2
+        exit 1
+    }
+fi
+
+mkdir -p /boot/rpi4 /boot/loader/entries /boot/EFI/BOOT /boot/EFI/systemd
+# A killed updater cannot run its EXIT trap. With the lock held, reclaim only
+# real directories with our generated staging name, never links or boot sets.
+for directory in /boot/rpi4/.*; do
+    [[ -d $directory && ! -L $directory ]] || continue
+    name=${directory##*/}
+    [[ $name =~ ^\.[0-9A-Za-z._+-]+\.[0-9A-Za-z]{6}$ ]] || continue
+    rm -rf -- "$directory"
+done
+staging=$(mktemp -d "/boot/rpi4/.${kver}.XXXXXX")
+temporary_files=()
+cleanup() {
+    [[ -z $staging ]] || rm -rf -- "$staging"
+    if ((${#temporary_files[@]})); then
+        rm -f -- "${temporary_files[@]}"
+    fi
+}
+trap cleanup EXIT
+
+# vmlinuz is an EFI zboot executable. Do not unpack it or rename a raw Image.
+install -m 644 "$kernel" "$staging/linux.efi"
+install -m 644 "$dtb" "$staging/bcm2711-rpi-4-b.dtb"
+if [[ ${RPI4_IMAGE_BUILD:-0} == 1 ]]; then
+    install -m 644 /boot/initramfs-linux.img "$staging/initramfs-linux.img"
+else
+    # Require a fresh successful build even if an earlier pacman hook failed.
+    mkinitcpio -k "$kver" -g "$staging/initramfs-linux.img"
+    [[ -s $staging/initramfs-linux.img ]] || { echo 'mkinitcpio produced an empty image.' >&2; exit 1; }
+    chmod 644 "$staging/initramfs-linux.img"
+fi
+printf '%s\n' "$kver" > "$staging/kernel-version"
+(
+    cd "$staging"
+    sha256sum linux.efi bcm2711-rpi-4-b.dtb initramfs-linux.img kernel-version > SHA256SUMS
+)
+boot_digest=$(sha256sum "$staging/SHA256SUMS" | cut -d ' ' -f 1)
+release="$kver-${boot_digest:0:32}"
+
+previous=''
+if [[ -f /boot/loader/entries/rpi4.conf ]]; then
+    previous=$(awk '$1 == "linux" && $2 ~ /^\/rpi4\// {split($2,p,"/"); print p[3]; exit}' /boot/loader/entries/rpi4.conf)
+    if [[ $previous == "$release" ]]; then
+        previous=$(awk '$1 == "#" && $2 == "previous-boot-set" {print $3; exit}' /boot/loader/entries/rpi4.conf)
+    fi
+    [[ $previous =~ ^[0-9A-Za-z._+-]+-[[:xdigit:]]{32}$ ]] || previous=''
+fi
+
+# Content-addressed directories are immutable. Refuse to reuse damaged files.
+sync -f "$staging"
+if [[ -e /boot/rpi4/$release ]]; then
+    if [[ -d /boot/rpi4/$release && ! -L /boot/rpi4/$release ]] &&
+        cmp -s "$staging/SHA256SUMS" "/boot/rpi4/$release/SHA256SUMS" &&
+        (cd "/boot/rpi4/$release" && sha256sum --check --status SHA256SUMS); then
+        rm -rf -- "$staging"
+    else
+        echo 'Existing boot set is damaged; the selected entry was not changed.' >&2
+        exit 1
+    fi
+else
+    mv -- "$staging" "/boot/rpi4/$release"
+fi
+staging=''
+sync -f /boot/rpi4
+
+entry=$(mktemp /boot/loader/entries/.rpi4.conf.XXXXXX)
+temporary_files+=("$entry")
+cat > "$entry" <<EOF
+# Managed by rpi4-update-boot.
+# previous-boot-set $previous
+# Previous payloads do not preserve rootfs modules and are not an OS rollback.
+title Arch Linux Ports - Raspberry Pi 4
+version $kver
+sort-key arch-rpi4
+architecture aa64
+linux /rpi4/$release/linux.efi
+initrd /rpi4/$release/initramfs-linux.img
+options root=PARTUUID=$ROOT_PARTUUID rw rootwait rootfstype=ext4 console=ttyAMA0,115200 console=tty1 systemd.show_status=yes
+EOF
+# Deliberately omit a devicetree directive: EDK2 applies hardware-specific
+# PSCI, MAC and PCIe fixups. Replacing its tree with a raw DTB loses those fixes.
+
+# Stage both bootloader copies before replacing either. Atomic renames avoid
+# exposing partially copied files; FAT is still not safe against power loss.
+loader_fallback=$(mktemp /boot/EFI/BOOT/.BOOTAA64.EFI.XXXXXX)
+temporary_files+=("$loader_fallback")
+loader_vendor=$(mktemp /boot/EFI/systemd/.systemd-bootaa64.efi.XXXXXX)
+temporary_files+=("$loader_vendor")
+install -m 644 "$bootloader" "$loader_fallback"
+install -m 644 "$bootloader" "$loader_vendor"
+chmod 644 "$entry"
+sync -f "$entry"
+sync -f "$loader_fallback"
+sync -f "$loader_vendor"
+mv -f -- "$loader_vendor" /boot/EFI/systemd/systemd-bootaa64.efi
+sync -f /boot/EFI/systemd
+mv -f -- "$loader_fallback" /boot/EFI/BOOT/BOOTAA64.EFI
+sync -f /boot/EFI/BOOT
+
+# Keep local timeout/default preferences on later updates.
+if [[ ! -e /boot/loader/loader.conf ]]; then
+    loader_config=$(mktemp /boot/loader/.loader.conf.XXXXXX)
+    temporary_files+=("$loader_config")
+    printf 'default rpi4.conf\ntimeout 3\nconsole-mode keep\neditor yes\n' > "$loader_config"
+    chmod 644 "$loader_config"
+    sync -f "$loader_config"
+    mv -f -- "$loader_config" /boot/loader/loader.conf
+    sync -f /boot/loader
+fi
+
+# Commit last: every file referenced by this entry is complete and synced.
+mv -f -- "$entry" /boot/loader/entries/rpi4.conf
+sync -f /boot/loader/entries
+
+# Retain only the current set and one previous payload set. No previous menu
+# entry is advertised because pacman does not retain the old rootfs modules.
+for directory in /boot/rpi4/*; do
+    [[ -d $directory && ! -L $directory ]] || continue
+    name=${directory##*/}
+    [[ $name =~ ^[0-9A-Za-z._+-]+-[[:xdigit:]]{32}$ ]] || continue
+    if [[ $name != "$release" && $name != "$previous" ]]; then
+        rm -rf -- "$directory"
+    fi
+done
+sync -f /boot/rpi4
+printf 'Boot files ready for kernel %s (EDK2 firmware tables).\n' "$kver"

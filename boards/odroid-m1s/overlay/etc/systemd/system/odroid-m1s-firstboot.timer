@@ -1,0 +1,12 @@
+[Unit]
+Description=Retry ODROID-M1S package keyring initialization after time synchronization
+ConditionPathExists=!/var/lib/odroid-m1s/initialized
+
+[Timer]
+# Monotonic deadlines remain valid when NTP corrects an invalid RTC date.
+OnBootSec=30s
+OnUnitInactiveSec=60s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

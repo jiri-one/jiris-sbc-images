@@ -1,0 +1,59 @@
+#!/bin/bash
+set -euo pipefail
+
+# systemd's legacy KDFONTOP probe cannot inspect fonts taller than 32 pixels.
+# kbd supports the tall-font API. Keep this workaround limited to our tested
+# console preset; delegate other configurations to the packaged implementation.
+vendor=/usr/lib/systemd/systemd-vconsole-setup
+read -r cmdline < /proc/cmdline || cmdline=''
+if [[ $cmdline == *vconsole.* ]]; then
+    exec "$vendor" "$@"
+fi
+if [[ -n ${CREDENTIALS_DIRECTORY:-} ]]; then
+    for credential in "$CREDENTIALS_DIRECTORY"/vconsole.*; do
+        [[ ! -e $credential ]] || exec "$vendor" "$@"
+    done
+fi
+KEYMAP=us
+FONT=''
+if [[ -r /etc/vconsole.conf ]]; then
+    # Root-owned configuration, using the same assignment syntax as sd-vconsole.
+    # shellcheck source=/dev/null
+    source /etc/vconsole.conf
+fi
+if [[ $FONT != /usr/share/kbd/consolefonts/Uni2-DejaVu59x32.psf.gz ||
+      $KEYMAP != us || -n ${KEYMAP_TOGGLE:-}${FONT_MAP:-}${FONT_UNIMAP:-}${FONT_SCALE:-} ]]; then
+    exec "$vendor" "$@"
+fi
+
+if (( $# > 1 )); then
+    exec "$vendor" "$@"
+elif (( $# == 1 )); then
+    [[ $1 =~ ^/dev/tty[0-9]+$ ]] || exec "$vendor" "$@"
+    [[ -c $1 ]] || exec "$vendor" "$@"
+    candidates=("$1")
+else
+    candidates=(/dev/tty{1..6})
+fi
+
+consoles=()
+for console in "${candidates[@]}"; do
+    [[ -c $console ]] || continue
+    if /usr/bin/setfont -C "$console" --check; then
+        consoles+=("$console")
+    else
+        status=$?
+        # Dummy/graphics consoles deliberately return 1; actual errors must fail.
+        (( status == 1 )) || exit "$status"
+    fi
+done
+(( ${#consoles[@]} > 0 )) || exit 0
+for console in "${consoles[@]}"; do
+    /usr/bin/kbd_mode -u -C "$console"
+    printf '\033%%G' > "$console"
+    /usr/bin/stty -F "$console" iutf8
+done
+/usr/bin/loadkeys -u -C "${consoles[0]}" "$KEYMAP"
+for console in "${consoles[@]}"; do
+    /usr/bin/setfont -C "$console" "$FONT"
+done

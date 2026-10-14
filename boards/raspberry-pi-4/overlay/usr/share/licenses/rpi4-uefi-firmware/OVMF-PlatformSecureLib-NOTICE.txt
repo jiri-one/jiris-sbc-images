@@ -1,0 +1,7 @@
+/** @file
+  Provides a platform-specific method to enable Secure Boot Custom Mode setup.
+
+  Copyright (c) 2006 - 2012, Intel Corporation. All rights reserved.<BR>
+  SPDX-License-Identifier: BSD-2-Clause-Patent
+
+**/

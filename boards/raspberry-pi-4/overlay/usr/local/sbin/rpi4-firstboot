@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ ! -e /var/lib/rpi4/initialized ]] || exit 0
+# Also guard direct invocation: a build-time clock floor is not an NTP sync.
+if [[ ! -e /run/systemd/timesync/synchronized ]]; then
+    echo 'Package keyring initialization is waiting for time synchronization.' >&2
+    exit 1
+fi
+pacman-key --init
+pacman-key --populate archlinux
+pacman-key --add /usr/share/rpi4/ports-public.key
+pacman-key --lsign-key C43E3B9B9CE3F35E97AEF93873556FFF735F691D
+install -d -m 755 /var/lib/rpi4
+touch /var/lib/rpi4/initialized

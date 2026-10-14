@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# During bootstrap, packages are installed before the image is personalized.
+[[ -f /etc/rpi4-image.conf ]] || exit 0
+# The builder creates this root-owned file, also used by the first-boot service.
+# shellcheck source=/dev/null
+source /etc/rpi4-image.conf
+[[ ${ROOT_PARTUUID:-} =~ ^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]] || {
+    echo 'Invalid root PARTUUID in /etc/rpi4-image.conf.' >&2
+    exit 1
+}
+[[ ${BOOT_FS_UUID:-} =~ ^[[:xdigit:]]{4}-[[:xdigit:]]{4}$ ]] || {
+    echo 'Invalid FAT filesystem UUID in /etc/rpi4-image.conf.' >&2
+    exit 1
+}
+[[ ${IMAGE_FLAVOUR:-} == sd-usb ]] || { echo 'Unsupported image flavour.' >&2; exit 1; }
+
+# The image builder prepares a directory tree before creating the FAT filesystem.
+if [[ ${RPI4_IMAGE_BUILD:-0} != 1 ]]; then
+    mountpoint -q /boot || { echo 'Mount /boot before updating boot packages.' >&2; exit 1; }
+    actual_uuid=$(findmnt -n -o UUID --target /boot)
+    [[ ${actual_uuid^^} == "${BOOT_FS_UUID^^}" ]] || {
+        echo 'Unexpected /boot filesystem UUID.' >&2
+        exit 1
+    }
+    [[ $(findmnt -n -o FSTYPE --target /boot) == vfat ]] || {
+        echo '/boot must be the FAT EFI System Partition.' >&2
+        exit 1
+    }
+    options=$(findmnt -n -o OPTIONS --target /boot)
+    [[ ,$options, == *,rw,* ]] || { echo '/boot is mounted read-only.' >&2; exit 1; }
+fi
+[[ -d /boot && -w /boot ]] || { echo '/boot is not a writable directory.' >&2; exit 1; }

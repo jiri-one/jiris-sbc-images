@@ -1,0 +1,13 @@
+[Unit]
+Description=Expand the Raspberry Pi 4 root partition and filesystem
+After=local-fs.target
+ConditionPathExists=!/var/lib/rpi4/root-expanded
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/rpi4-grow-root
+RemainAfterExit=yes
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

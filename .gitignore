@@ -1,0 +1,16 @@
+build/
+cache/
+sources/
+artifacts/
+private/
+__pycache__/
+*.py[cod]
+*.img
+*.img.*
+*.qcow2
+*.tar.*
+*.zip
+*.pem
+*.key
+.env
+.env.*

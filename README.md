@@ -3,6 +3,9 @@
 Headless **Arch Linux Ports AArch64** image builders with Ethernet, DHCP and SSH.
 Both use community Ports packages, with a separate boot setup for each board.
 
+The images and scripts are provided as is, without warranty. Use them at your
+own risk.
+
 | Board | Boot | Status |
 | --- | --- | --- |
 | [Raspberry Pi 4](boards/raspberry-pi-4/README.md) | SD/USB, EDK2 UEFI + systemd-boot | Offline and generic QEMU checks passed; physical Pi boot is untested. |
@@ -33,9 +36,10 @@ Follow the board's installation instructions. Before flashing, use
 SSH public key to a new copy of the image. It needs Python 3.11+, OpenSSH,
 util-linux, e2fsprogs and coreutils; no root access is needed.
 
-The login is `rpi` on the Pi and `odroid` on the M1S. Password login is disabled;
-the configured key grants access to passwordless `sudo`. Without configuring a
-key first, neither SSH nor the local console accepts a login.
+Log in as `rpi` on Raspberry Pi 4 or `odroid` on ODROID-M1S.
+Password login is disabled; the configured key grants access to passwordless
+`sudo`. Without configuring a key first, neither SSH nor the local console
+accepts a login.
 
 ## License and credits
 

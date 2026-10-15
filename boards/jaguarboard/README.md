@@ -50,8 +50,9 @@ Connect Ethernet, select the USB drive's **UEFI** entry in firmware setup and
 find `jaguarboard` in your DHCP leases. Log in with `ssh jaguar@BOARD_IP`;
 `sudo` needs no password.
 Enable console login with `sudo passwd jaguar` over SSH. Defaults are a US
-keyboard, UTC and a font sized for the active display. Set `FONT` in
-`/etc/vconsole.conf` to override it. Direct SD-slot boot is untested.
+keyboard, UTC and a font sized for the active display. To override it, set `FONT`
+in `/etc/vconsole.conf`, then rebuild the initramfs and boot files as described
+under [Updates](#updates). Direct SD-slot boot is untested.
 
 To install on eMMC, stop applications writing data and run:
 

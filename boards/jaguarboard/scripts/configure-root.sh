@@ -101,7 +101,7 @@ Collect diagnostics: sudo jaguar-health-snapshot
 The installer erases its selected target only after explicit confirmation.
 EOF
 pacman -Q > /out/packages.txt
-pacman -Scc --noconfirm
+find /var/cache/pacman/pkg -mindepth 1 -delete
 # Every installed board creates its own local package-keyring key after NTP sync.
 rm -rf /etc/pacman.d/gnupg
 install -d -m 755 /var/lib/systemd/timesync

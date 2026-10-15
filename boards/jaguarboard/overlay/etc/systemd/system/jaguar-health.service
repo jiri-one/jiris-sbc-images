@@ -1,0 +1,11 @@
+[Unit]
+Description=Record JaguarBoard memory, pressure and temperature
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/jaguar-health-snapshot
+SyslogIdentifier=jaguar-health
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes

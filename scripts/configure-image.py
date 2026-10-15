@@ -10,6 +10,7 @@ The source stays unchanged; the output must not already exist.
 import argparse
 import base64
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date
 import json
 import os
@@ -23,9 +24,31 @@ import tempfile
 
 MIB = 1024 * 1024
 ROOT_TYPE = "B921B045-1DF0-41C3-AF44-4C6F280D3FAE"
+ESP_TYPE = "C12A7328-F81F-11D2-BA4B-00A0C93EC93B"
+LINUX_TYPE = "0FC63DAF-8483-4772-8E79-3D69D8477DE4"
+
+
+@dataclass(frozen=True)
+class Board:
+    user: str
+    name: str
+    boot_start: int
+    boot_size: int
+    boot_type: str
+    boot_label: str
+    root_type: str
+    flavours: frozenset[str]
+    image_size: int | None = None
+
+
 BOARDS = {
-    "RPI4_ROOT": ("rpi", "rpi4", MIB, "C12A7328-F81F-11D2-BA4B-00A0C93EC93B", {"sd-usb"}),
-    "M1S_ROOT": ("odroid", "odroid-m1s", 16 * MIB, "0FC63DAF-8483-4772-8E79-3D69D8477DE4", {"sd-emmc", "nvme"}),
+    "RPI4_ROOT": Board("rpi", "rpi4", MIB, 1024 * MIB, ESP_TYPE,
+                       "RPI4_BOOT", ROOT_TYPE, frozenset({"sd-usb"})),
+    "M1S_ROOT": Board("odroid", "odroid-m1s", 16 * MIB, 1024 * MIB, LINUX_TYPE,
+                      "M1S_BOOT", ROOT_TYPE, frozenset({"sd-emmc", "nvme"})),
+    "JAGUAR_ROOT": Board("jaguar", "jaguarboard", MIB, 256 * MIB, ESP_TYPE,
+                         "JAGUAR_EFI", LINUX_TYPE, frozenset({"usb-emmc"}),
+                         image_size=6 * 1024 * MIB),
 }
 KEY_TYPES = {"ssh-ed25519", "ssh-rsa", "ecdsa-sha2-nistp256",
              "ecdsa-sha2-nistp384", "ecdsa-sha2-nistp521"}
@@ -90,13 +113,15 @@ def partition(image):
     label = root.get("name")
     if label not in BOARDS:
         raise ValueError("Unrecognized board root partition")
-    _, _, boot_start, boot_type, _ = BOARDS[label]
+    board = BOARDS[label]
     offset, length = root["start"] * 512, root["size"] * 512
-    if (boot["start"] * 512 != boot_start or boot["size"] * 512 != 1024 * MIB
-            or boot.get("type", "").upper() != boot_type
-            or root.get("type", "").upper() != ROOT_TYPE
-            or boot.get("name") != label.replace("ROOT", "BOOT")
-            or offset != boot_start + 1024 * MIB or length <= 0
+    if (boot["start"] * 512 != board.boot_start
+            or boot["size"] * 512 != board.boot_size
+            or boot.get("type", "").upper() != board.boot_type
+            or root.get("type", "").upper() != board.root_type
+            or boot.get("name") != board.boot_label
+            or offset != board.boot_start + board.boot_size or length <= 0
+            or (board.image_size is not None and image.stat().st_size != board.image_size)
             or offset + length != image.stat().st_size - MIB):
         raise ValueError("Partition layout does not match a supported release image")
     return label, root["uuid"], offset, length
@@ -174,7 +199,8 @@ class Filesystem:
 
 
 def check_image(fs, label, root_uuid):
-    user, board, _, _, flavours = BOARDS[label]
+    board = BOARDS[label]
+    user = board.user
     stats = fs.command("stats").decode()
     if not re.search(rf"^Filesystem volume name:\s+{label}$", stats, re.MULTILINE):
         raise ValueError("Root filesystem label does not match the partition table")
@@ -186,8 +212,8 @@ def check_image(fs, label, root_uuid):
         if info[0] != "directory" or info[2] != uid or info[1] & 0o022:
             raise ValueError(f"Unsafe directory type, owner or permissions: {path}")
     config = dict(line.split("=", 1) for line in
-                  fs.read(f"/etc/{board}-image.conf").decode().splitlines() if "=" in line)
-    if config.get("ROOT_PARTUUID", "").lower() != root_uuid.lower() or config.get("IMAGE_FLAVOUR") not in flavours:
+                  fs.read(f"/etc/{board.name}-image.conf").decode().splitlines() if "=" in line)
+    if config.get("ROOT_PARTUUID", "").lower() != root_uuid.lower() or config.get("IMAGE_FLAVOUR") not in board.flavours:
         raise ValueError("Board configuration does not match the partition table")
     if fs.read("/etc/machine-id", missing=True):
         raise ValueError("Image has a machine-id and appears to have booted already")

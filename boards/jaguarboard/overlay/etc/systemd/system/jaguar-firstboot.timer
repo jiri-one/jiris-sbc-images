@@ -1,0 +1,11 @@
+[Unit]
+Description=Retry JaguarBoard keyring initialization after time synchronization
+ConditionPathExists=!/var/lib/jaguarboard/initialized
+
+[Timer]
+OnBootSec=30s
+OnUnitInactiveSec=60s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

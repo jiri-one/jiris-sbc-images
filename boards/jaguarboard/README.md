@@ -1,0 +1,103 @@
+# JaguarBoard
+
+For the original **Intel Atom Z3735G JaguarBoard**, with 1 GB RAM and 16 GB eMMC.
+Arch Linux x86_64 with `linux-lts`, Ethernet, SSH, zram and a readable console
+font. The 6 GiB image fits an **8 GB USB drive** and can install itself to eMMC.
+Both 32-bit and 64-bit EFI loaders are included; Secure Boot must be disabled.
+
+An earlier build booted from USB and eMMC on v1.3 hardware. This build passed
+QEMU boot and installation checks; physical retesting is still needed.
+**Intermittent freezes remain under investigation**; see [Stability](#stability).
+
+## Build
+
+Use an x86-64 Linux host with rootless Podman and Bash. From the repository root:
+
+```sh
+cd boards/jaguarboard
+scripts/build-image.sh
+```
+
+The output directory `artifacts/` must not exist; pass a different new directory
+as the sole argument if needed. The builder uses the official Arch base container
+and records its digest and package versions. `JAGUAR_BASE_IMAGE` can pin the
+container by digest; package repositories remain rolling.
+
+## Install
+
+In the image directory, verify and decompress the download if needed:
+
+```sh
+sha256sum --ignore-missing -c SHA256SUMS
+zstd -d --keep arch-jaguar.img.zst
+```
+
+From the repository root, configure your SSH public key using the
+[configuration tool and its host requirements](../../README.md#images-and-login):
+
+```sh
+python3 scripts/configure-image.py /path/to/arch-jaguar.img \
+  --ssh-key ~/.ssh/id_ed25519.pub --output /path/to/jaguar-configured.img
+```
+
+Write `jaguar-configured.img` to the **whole USB drive**, erasing its contents.
+Connect Ethernet, select USB in firmware setup and find `jaguarboard` in your
+DHCP leases. Log in with `ssh jaguar@BOARD_IP`; `sudo` needs no password.
+Enable console login with `sudo passwd jaguar` over SSH. Defaults are a US
+keyboard, UTC and the 16×32 `latarcyrheb-sun32` font. Direct SD-slot boot is untested.
+
+To install on eMMC, stop applications writing data and run:
+
+```sh
+sudo jaguar-install-emmc
+```
+
+The installer shows the detected disk and asks for an exact confirmation such
+as `ERASE /dev/mmcblk1`. **All data on that disk is erased.** Device numbers can
+change across boots. The running system disk and disks in use are rejected.
+The copy fills the eMMC, gets new disk identifiers and preserves your login.
+
+After installation, run `sudo poweroff`, remove USB and start the board.
+If necessary, select **Arch Linux (eMMC)** or the eMMC's `EFI/BOOT/BOOTX64.EFI`
+(`BOOTIA32.EFI` for 32-bit firmware) in firmware setup. Check `findmnt /` and
+`findmnt /boot/efi` to confirm eMMC boot.
+
+## Updates
+
+First boot initializes the pacman keyring after NTP synchronization. Before
+updating, check `test -f /var/lib/jaguarboard/initialized`; if absent, inspect
+`journalctl -u jaguar-firstboot -u systemd-timesyncd`. SSH remains available.
+Keep the EFI partition mounted at `/boot/efi`, then run:
+
+```sh
+sudo pacman -Syu
+sudo jaguar-update-boot
+```
+
+Package hooks update the kernel and initramfs. After changing initramfs settings,
+run `sudo mkinitcpio -P` before `sudo jaguar-update-boot`. Resolve errors before
+rebooting.
+
+## Stability
+
+Some JaguarBoards have a history of occasional freezes. We are monitoring this
+board to identify remaining failures and work on fixes. Historical reports point
+to [Bay Trail idle-state issues](https://web.archive.org/web/20170503022532/http://www.jaguarboard.org/index.php/forum/troubleshooting/414-possible-explanation-for-freezing.html)
+and [power-supply problems](https://web.archive.org/web/20170503022535/http://www.jaguarboard.org/index.php/forum/troubleshooting/607-debian-crashing.html?start=12);
+the cause on a particular board still needs to be established.
+
+The default GRUB entry uses `intel_idle.max_cstate=1`. This may increase power
+use and is not a confirmed fix. In `/etc/default/jaguar-boot`, choose `0` for
+normal boot, `1` for this workaround or `2` for `nomodeset`, then run
+`sudo jaguar-update-boot`.
+
+Optional minute-by-minute memory, temperature and OOM logging:
+
+```sh
+sudo systemctl enable --now jaguar-health.timer
+journalctl -u jaguar-health.service
+journalctl -b -1 -k
+```
+
+Persistent journals are limited to 48 MiB. Stop sampling with
+`sudo systemctl disable --now jaguar-health.timer`.

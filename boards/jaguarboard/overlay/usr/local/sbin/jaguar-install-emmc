@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# Copy the running USB installation into a new, independent installation.
+set -euo pipefail
+fail() { echo "Error: $*" >&2; exit 1; }
+usage() { echo 'Usage: sudo jaguar-install-emmc [--device /dev/WHOLE_DISK]'; }
+target=
+case ${1:-} in
+    '') ;;
+    --device) [[ $# == 2 ]] || { usage; exit 2; }; target=$2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) usage; exit 2 ;;
+esac
+[[ $EUID == 0 ]] || fail 'Run this command with sudo.'
+if [[ -z $target ]]; then
+    candidates=()
+    for path in /sys/class/block/mmcblk*; do
+        [[ ${path##*/} =~ ^mmcblk[0-9]+$ ]] || continue
+        [[ -r $path/device/type ]] || continue
+        [[ $(cat "$path/device/type") == MMC ]] || continue
+        candidates+=("/dev/${path##*/}")
+    done
+    [[ ${#candidates[@]} == 1 ]] || fail 'Could not identify exactly one eMMC. Inspect lsblk, then use --device with the correct whole disk.'
+    target=${candidates[0]}
+fi
+target=$(readlink -f -- "$target")
+[[ -b $target ]] || fail 'Target is not a block device.'
+[[ $(lsblk -dnro TYPE "$target") == disk ]] || fail 'Select a whole disk, not a partition.'
+[[ $(blockdev --getro "$target") == 0 ]] || fail 'Target is read-only.'
+root_source=$(findmnt -nro SOURCE /)
+root_source=$(readlink -f -- "${root_source%%\[*}")
+[[ -b $root_source ]] || fail 'The running root filesystem must be on a block device.'
+mapfile -t ancestors < <(lsblk -snrpo NAME "$root_source")
+for ancestor in "${ancestors[@]}"; do
+    [[ $target != "$ancestor" ]] || fail 'Refusing to overwrite the disk containing the running system.'
+done
+[[ -z $(lsblk -nrpo MOUNTPOINTS "$target" | tr -d '[:space:]') ]] || fail 'Target has mounted filesystems or active swap. Unmount them first.'
+while read -r node; do
+    holders=(/sys/class/block/"${node##*/}"/holders/*)
+    [[ ! -e ${holders[0]} ]] || fail 'Target is in use by another block device.'
+done < <(lsblk -nrpo NAME "$target")
+[[ ! -e /var/lib/pacman/db.lck ]] || fail 'A package operation is in progress.'
+source_bytes=$(du -sx --block-size=1 / 2>/dev/null | cut -f1)
+target_bytes=$(blockdev --getsize64 "$target")
+(( target_bytes >= source_bytes + 1073741824 )) || fail 'Target needs at least 1 GiB more than the current root filesystem uses.'
+printf '\nRunning system: %s\nDestination to ERASE:\n' "$root_source"
+lsblk -d -o PATH,SIZE,MODEL,SERIAL "$target"
+printf '\nThis deletes ALL data on %s and copies the current system onto it.\n' "$target"
+printf 'Stop applications writing data before continuing.\n'
+read -r -p "Type ERASE $target to continue: " confirmation
+[[ $confirmation == "ERASE $target" ]] || fail 'Cancelled; no changes made.'
+# Wait for any first-boot keyring creation before touching the target, then
+# prevent it from starting midway through rsync. The lock is released on exit.
+exec 9>/run/lock/jaguar-install.lock
+flock -x -w 300 9 || fail 'Package-keyring initialization is still in progress; try again later.'
+# Recheck immediately before the first write.
+[[ -z $(lsblk -nrpo MOUNTPOINTS "$target" | tr -d '[:space:]') ]] || fail 'Target was mounted while awaiting confirmation.'
+destination=
+cleanup() {
+    if [[ -n $destination ]]; then
+        umount -R "$destination" 2>/dev/null || true
+        rmdir "$destination" 2>/dev/null || true
+    fi
+}
+trap cleanup EXIT
+sfdisk --wipe always --wipe-partitions always "$target" <<'EOF'
+label: gpt
+unit: sectors
+start=2048, size=524288, type=U, name="JAGUAR_EFI"
+type=L, name="JAGUAR_ROOT"
+EOF
+udevadm settle
+separator=
+[[ $target =~ [0-9]$ ]] && separator=p
+esp="${target}${separator}1"
+rootpart="${target}${separator}2"
+[[ -b $esp && -b $rootpart ]] || fail 'New partitions did not appear.'
+mkfs.fat -F 32 -n JAGUAR_EFI "$esp"
+mkfs.ext4 -F -m 1 -L JAGUAR_ROOT -O '^metadata_csum_seed,^orphan_file' "$rootpart"
+destination=$(mktemp -d /mnt/jaguar-install.XXXXXX)
+mount -t ext4 "$rootpart" "$destination"
+mkdir -p "$destination/boot/efi"
+mount -t vfat "$esp" "$destination/boot/efi"
+rsync -aHAXxS --numeric-ids --info=progress2 \
+    --exclude='/dev/*' --exclude='/proc/*' --exclude='/sys/*' \
+    --exclude='/run/*' --exclude='/tmp/*' --exclude='/mnt/*' \
+    --exclude='/media/*' --exclude='/lost+found' --exclude='/boot/efi/*' \
+    --exclude='/var/log/*' --exclude='/var/tmp/*' \
+    --exclude='/var/lib/systemd/random-seed' / "$destination/"
+root_uuid=$(blkid -s UUID -o value "$rootpart")
+esp_uuid=$(blkid -s UUID -o value "$esp")
+cat > "$destination/etc/fstab" <<EOF
+UUID=$root_uuid / ext4 defaults,noatime 0 1
+UUID=$esp_uuid /boot/efi vfat defaults,umask=0077 0 2
+EOF
+cat > "$destination/etc/jaguarboard-image.conf" <<EOF
+ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$rootpart")
+IMAGE_FLAVOUR=usb-emmc
+EOF
+mount --rbind /dev "$destination/dev"
+mount --make-rslave "$destination/dev"
+chroot "$destination" /usr/local/sbin/jaguar-update-boot "$root_uuid"
+sync
+umount -R "$destination"
+rmdir "$destination"
+destination=
+loader=
+if [[ -r /sys/firmware/efi/fw_platform_size ]]; then
+    case $(cat /sys/firmware/efi/fw_platform_size) in
+        32) loader='\EFI\BOOT\BOOTIA32.EFI' ;;
+        64) loader='\EFI\BOOT\BOOTX64.EFI' ;;
+    esac
+fi
+if [[ -n $loader ]] && efibootmgr --create --disk "$target" --part 1 \
+    --label 'Arch Linux (eMMC)' --loader "$loader"; then
+    printf '\nAdded Arch Linux (eMMC) to the firmware boot order.\n'
+else
+    printf '\nCould not register the firmware boot entry. Select the eMMC EFI file in firmware setup if it does not boot automatically.\n' >&2
+fi
+printf '\nInstallation complete. Run sudo poweroff, remove USB, then start the board.\n'
+printf 'Both 32-bit and 64-bit EFI removable boot paths are installed.\n'

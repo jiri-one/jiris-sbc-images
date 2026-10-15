@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Keep the keyring and its completion marker consistent during an eMMC copy.
+exec 9>/run/lock/jaguar-install.lock
+flock -x 9
+[[ ! -e /var/lib/jaguarboard/initialized ]] || exit 0
+if [[ ! -e /run/systemd/timesync/synchronized ]]; then
+    echo 'Package keyring initialization is waiting for time synchronization.' >&2
+    exit 1
+fi
+pacman-key --init
+pacman-key --populate archlinux
+install -d -m 755 /var/lib/jaguarboard
+touch /var/lib/jaguarboard/initialized

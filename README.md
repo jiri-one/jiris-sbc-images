@@ -1,7 +1,9 @@
 # Jiri's SBC Images
 
-Headless **Arch Linux Ports AArch64** image builders with Ethernet, DHCP and SSH.
-Both use community Ports packages, with a separate boot setup for each board.
+Headless **Arch Linux** image builders with Ethernet, DHCP and SSH.
+Raspberry Pi 4 and ODROID-M1S use community **Arch Linux Ports AArch64**
+packages. JaguarBoard uses official **Arch Linux x86_64** packages.
+Each board has its own boot setup.
 
 The images and scripts are provided as is, without warranty. Use them at your
 own risk.
@@ -10,12 +12,15 @@ own risk.
 | --- | --- | --- |
 | [Raspberry Pi 4](boards/raspberry-pi-4/README.md) | SD/USB, EDK2 UEFI + systemd-boot | Offline and generic QEMU checks passed; physical Pi boot is untested. |
 | [ODROID-M1S](boards/odroid-m1s/README.md) | SD/eMMC, U-Boot + extlinux | Offline and generic QEMU checks passed. Earlier SD/eMMC builds booted on hardware; this rebuild still needs hardware testing. |
+| [JaguarBoard](boards/jaguarboard/README.md) | USB → eMMC, GRUB with 32/64-bit EFI | Earlier build booted on v1.3 hardware; this build needs retesting. Intermittent freezes are being investigated. |
 
 ## Build requirements
 
 Use an x86-64 Linux host with Python 3.11+, rootless Podman, Git, curl, GnuPG,
-bsdtar, zstd, coreutils, util-linux and e2fsprogs. Register `qemu-aarch64-static`
-with binfmt_misc enabled and the `F` flag. Pi builds also need dosfstools.
+bsdtar, zstd, coreutils, util-linux and e2fsprogs. For ARM builds, register
+`qemu-aarch64-static` with binfmt_misc enabled and the `F` flag.
+Pi builds also need dosfstools. JaguarBoard builds run natively in a rootless
+Arch container; see its README for the smaller host tool list.
 Allow about 30 GiB of free space per board.
 
 Run builds as a normal user. Each board's README has the commands. Named
@@ -36,7 +41,7 @@ Follow the board's installation instructions. Before flashing, use
 SSH public key to a new copy of the image. It needs Python 3.11+, OpenSSH,
 util-linux, e2fsprogs and coreutils; no root access is needed.
 
-Log in as `rpi` on Raspberry Pi 4 or `odroid` on ODROID-M1S.
+Log in as `rpi` on Raspberry Pi 4, `odroid` on ODROID-M1S, or `jaguar` on JaguarBoard.
 Password login is disabled; the configured key grants access to passwordless
 `sudo`. Without configuring a key first, neither SSH nor the local console
 accepts a login.

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# One inexpensive sample; the optional timer sends it to the persistent journal.
+set -euo pipefail
+read -r uptime_s _ < /proc/uptime
+read -r load1 load5 load15 _ < /proc/loadavg
+printf 'boot_id=%s uptime_s=%s load=%s,%s,%s ' \
+    "$(cat /proc/sys/kernel/random/boot_id)" "$uptime_s" "$load1" "$load5" "$load15"
+awk '/^(MemAvailable|SwapFree|SwapTotal):/ {printf "%s_kib=%s ", substr($1,1,length($1)-1), $2}' /proc/meminfo
+awk '/^(oom_kill|pswpin|pswpout) / {printf "%s=%s ", $1, $2}' /proc/vmstat
+for kind in cpu memory io; do
+    if [[ -r /proc/pressure/$kind ]]; then
+        printf 'psi_%s="%s" ' "$kind" "$(tr '\n' ';' < "/proc/pressure/$kind")"
+    fi
+done
+for zone in /sys/class/thermal/thermal_zone*; do
+    [[ -r $zone/type && -r $zone/temp ]] || continue
+    if temperature=$(cat "$zone/temp" 2>/dev/null); then
+        printf 'temp_%s_mC=%s ' "$(cat "$zone/type")" "$temperature"
+    fi
+done
+if [[ -r /sys/module/intel_idle/parameters/max_cstate ]]; then
+    printf 'intel_idle_max_cstate=%s ' "$(cat /sys/module/intel_idle/parameters/max_cstate)"
+fi
+printf '\n'

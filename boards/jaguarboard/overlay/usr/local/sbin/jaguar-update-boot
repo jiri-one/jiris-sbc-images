@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $EUID == 0 ]] || { echo 'Run as root.' >&2; exit 1; }
+if [[ $# == 0 ]] && ! mountpoint -q /boot/efi; then
+    echo 'Mount the EFI system partition at /boot/efi before updating boot files.' >&2
+    exit 1
+fi
+JAGUAR_BOOT_DEFAULT=1
+# shellcheck source=/dev/null
+[[ ! -r /etc/default/jaguar-boot ]] || source /etc/default/jaguar-boot
+[[ $JAGUAR_BOOT_DEFAULT =~ ^[012]$ ]] || { echo 'Invalid JAGUAR_BOOT_DEFAULT (use 0, 1 or 2).' >&2; exit 1; }
+root_uuid=${1:-$(findmnt -nro UUID /)}
+[[ $root_uuid =~ ^[0-9a-fA-F-]{36}$ ]] || { echo 'Invalid root UUID.' >&2; exit 1; }
+mkdir -p /boot/grub /boot/efi/EFI/BOOT
+cat > /boot/grub/grub.cfg <<EOF
+set timeout=5
+set default=$JAGUAR_BOOT_DEFAULT
+serial --unit=0 --speed=115200
+terminal_input console serial
+terminal_output console serial
+menuentry 'Arch Linux LTS - JaguarBoard' {
+    search --no-floppy --fs-uuid --set=root $root_uuid
+    linux /boot/vmlinuz-linux-lts root=UUID=$root_uuid rw rootwait console=ttyS0,115200n8 console=tty0
+    initrd /boot/initramfs-linux-lts.img
+}
+menuentry 'Arch Linux LTS - Bay Trail freeze workaround' {
+    search --no-floppy --fs-uuid --set=root $root_uuid
+    linux /boot/vmlinuz-linux-lts root=UUID=$root_uuid rw rootwait intel_idle.max_cstate=1 console=ttyS0,115200n8 console=tty0
+    initrd /boot/initramfs-linux-lts.img
+}
+menuentry 'Arch Linux LTS - basic display (nomodeset)' {
+    search --no-floppy --fs-uuid --set=root $root_uuid
+    linux /boot/vmlinuz-linux-lts root=UUID=$root_uuid rw rootwait nomodeset console=ttyS0,115200n8 console=tty0
+    initrd /boot/initramfs-linux-lts.img
+}
+EOF
+bootstrap=$(mktemp)
+trap 'rm -f "$bootstrap"' EXIT
+cat > "$bootstrap" <<EOF
+search --no-floppy --fs-uuid --set=root $root_uuid
+set prefix=(\$root)/boot/grub
+configfile /boot/grub/grub.cfg
+EOF
+for target in i386-efi x86_64-efi; do
+    case $target in i386-efi) name=BOOTIA32.EFI ;; *) name=BOOTX64.EFI ;; esac
+    grub-mkstandalone -O "$target" -o "/boot/efi/EFI/BOOT/$name" \
+        --locales='' --fonts='' \
+        --modules='part_gpt part_msdos fat ext2 normal linux search search_fs_uuid configfile serial terminal' \
+        "boot/grub/grub.cfg=$bootstrap"
+done

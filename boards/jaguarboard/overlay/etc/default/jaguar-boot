@@ -1,3 +1,5 @@
 # 0: normal; 1: Bay Trail C-state workaround; 2: nomodeset.
 # A successful boot is not evidence that intermittent freezes are fixed.
 JAGUAR_BOOT_DEFAULT=1
+# The image ships linux; installing linux-lts adds its boot entries too.
+JAGUAR_BOOT_KERNEL=linux

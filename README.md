@@ -12,7 +12,7 @@ own risk.
 | --- | --- | --- |
 | [Raspberry Pi 4](boards/raspberry-pi-4/README.md) | SD/USB, EDK2 UEFI + systemd-boot | Offline and generic QEMU checks passed; physical Pi boot is untested. |
 | [ODROID-M1S](boards/odroid-m1s/README.md) | SD/eMMC, U-Boot + extlinux | Offline and generic QEMU checks passed. Earlier SD/eMMC builds booted on hardware; this rebuild still needs hardware testing. |
-| [JaguarBoard](boards/jaguarboard/README.md) | USB → eMMC, GRUB with 32/64-bit EFI | Earlier build booted on v1.3 hardware; this build needs retesting. Intermittent freezes are being investigated. |
+| [JaguarBoard](boards/jaguarboard/README.md) | USB → eMMC, systemd-boot with 32/64-bit EFI | eMMC upgrade tested on v1.3 hardware; new USB image awaits hardware testing. Intermittent freezes are being investigated. |
 
 ## Build requirements
 

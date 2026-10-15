@@ -13,8 +13,8 @@ root_partuuid=$(cat /out/root-partuuid)
 fat_id=$(cat /out/fat-id)
 truncate -s 256M /out/esp.img
 mkfs.fat -F 32 -i "$fat_id" -n JAGUAR_EFI /out/esp.img
-mcopy -s -i /out/esp.img "$root/boot/efi/EFI" ::/
-rm -rf "$root/boot/efi/EFI"
+mcopy -s -i /out/esp.img "$root/boot/efi/EFI" "$root/boot/efi/loader" "$root/boot/efi/jaguar" ::/
+rm -rf "$root/boot/efi/EFI" "$root/boot/efi/loader" "$root/boot/efi/jaguar"
 truncate -s 5886M /out/root.img
 mkfs.ext4 -F -L JAGUAR_ROOT -U "$root_uuid" -m 1 \
     -O '^metadata_csum_seed,^orphan_file' -d "$root" /out/root.img

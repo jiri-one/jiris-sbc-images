@@ -15,7 +15,7 @@ Include = /etc/pacman.d/mirrorlist
 [extra]
 Include = /etc/pacman.d/mirrorlist
 EOF
-pacman -Syu --noconfirm base glibc linux-lts mkinitcpio grub efibootmgr intel-ucode \
+pacman -Syu --noconfirm base glibc linux mkinitcpio efibootmgr intel-ucode \
     linux-firmware-intel linux-firmware-realtek openssh sudo zram-generator \
     nano htop usbutils pciutils ethtool memtester rsync e2fsprogs dosfstools mtools
 # The container base does not include the generated hardware database.
@@ -24,18 +24,18 @@ install -m 644 /src/configs/mkinitcpio.conf /etc/mkinitcpio.conf
 tar -C /src/overlay --mode='u=rwX,go=rX' -cf - . |
     tar -C / -xf - --no-same-owner --no-overwrite-dir
 # A single generic initramfs is sufficient; its drivers are not host-specific.
-cat > /etc/mkinitcpio.d/linux-lts.preset <<'EOF'
+cat > /etc/mkinitcpio.d/linux.preset <<'EOF'
 ALL_config="/etc/mkinitcpio.conf"
-ALL_kver="/boot/vmlinuz-linux-lts"
+ALL_kver="/boot/vmlinuz-linux"
 PRESETS=('default')
-default_image="/boot/initramfs-linux-lts.img"
+default_image="/boot/initramfs-linux.img"
 EOF
-kernel_dirs=(/usr/lib/modules/*-lts)
+kernel_dirs=(/usr/lib/modules/*)
 [[ ${#kernel_dirs[@]} == 1 && -f ${kernel_dirs[0]}/vmlinuz ]]
-install -m 644 "${kernel_dirs[0]}/vmlinuz" /boot/vmlinuz-linux-lts
+install -m 644 "${kernel_dirs[0]}/vmlinuz" /boot/vmlinuz-linux
 printf 'KEYMAP=us\nFONT=latarcyrheb-sun32\n' > /etc/vconsole.conf
 mkinitcpio -P
-rm -f /boot/initramfs-linux-lts-fallback.img
+rm -f /boot/initramfs-linux-fallback.img
 ln -sf /usr/share/zoneinfo/UTC /etc/localtime
 printf 'en_US.UTF-8 UTF-8\n' > /etc/locale.gen
 locale-gen

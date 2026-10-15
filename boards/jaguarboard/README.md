@@ -1,16 +1,17 @@
 # JaguarBoard
 
 For the original **Intel Atom Z3735G JaguarBoard**, with 1 GB RAM and 16 GB eMMC.
-Arch Linux x86_64 with `linux-lts`, Ethernet, SSH, zram and a readable console
-font. The 6 GiB image fits an **8 GB USB drive** and can install itself to eMMC.
+Arch Linux x86_64 with the current `linux` kernel, systemd-boot, Ethernet, SSH,
+zram and a readable console font. The 6 GiB image fits an **8 GB USB drive**
+and can install itself to eMMC.
 
 Use **UEFI boot with Secure Boot disabled**. The same image works with **32-bit
 or 64-bit UEFI**: USB and installed eMMC include both loaders, and firmware
 selects the matching one. Linux is always 64-bit (`x86_64`), even with 32-bit
 UEFI. Legacy BIOS/CSM boot is not supported.
 
-An earlier build booted from USB and eMMC on v1.3 hardware. This build passed
-QEMU boot and installation checks; physical retesting is still needed.
+An existing eMMC installation boots with systemd-boot and the current kernel
+on v1.3 hardware. The new USB image still needs testing on hardware.
 **Intermittent freezes remain under investigation**; see [Stability](#stability).
 
 ## Build
@@ -77,12 +78,17 @@ Keep the EFI partition mounted at `/boot/efi`, then run:
 
 ```sh
 sudo pacman -Syu
-sudo jaguar-update-boot
 ```
 
-Package hooks update the kernel and initramfs. After changing initramfs settings,
-run `sudo mkinitcpio -P` before `sudo jaguar-update-boot`. Resolve errors before
-rebooting.
+Package hooks regenerate the initramfs and refresh both EFI loaders and the
+kernel files on the EFI partition. Boot-package changes are blocked if that
+partition is unmounted. After changing initramfs settings, run
+`sudo mkinitcpio -P` followed by `sudo jaguar-update-boot`. Resolve errors before
+rebooting; updates need free EFI space to stage a new kernel and initramfs.
+
+For an optional alternative kernel, `sudo pacman -S linux-lts` adds its boot
+entries. To make it the default, set `JAGUAR_BOOT_KERNEL=linux-lts` in
+`/etc/default/jaguar-boot` and run `sudo jaguar-update-boot`.
 
 ## Stability
 
@@ -92,10 +98,10 @@ to [Bay Trail idle-state issues](https://web.archive.org/web/20170503022532/http
 and [power-supply problems](https://web.archive.org/web/20170503022535/http://www.jaguarboard.org/index.php/forum/troubleshooting/607-debian-crashing.html?start=12);
 the cause on a particular board still needs to be established.
 
-The default GRUB entry uses `intel_idle.max_cstate=1`. This may increase power
-use and is not a confirmed fix. In `/etc/default/jaguar-boot`, choose `0` for
-normal boot, `1` for this workaround or `2` for `nomodeset`, then run
-`sudo jaguar-update-boot`.
+The default systemd-boot entry uses `intel_idle.max_cstate=1`. This may increase
+power use and is not a confirmed fix; neither is switching to the current kernel.
+In `/etc/default/jaguar-boot`, set `JAGUAR_BOOT_DEFAULT` to `0` for normal boot,
+`1` for this workaround or `2` for `nomodeset`, then run `sudo jaguar-update-boot`.
 
 Optional minute-by-minute memory, temperature and OOM logging:
 

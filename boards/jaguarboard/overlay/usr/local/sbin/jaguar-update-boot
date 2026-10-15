@@ -1,50 +1,130 @@
 #!/usr/bin/env bash
 set -euo pipefail
-[[ $EUID == 0 ]] || { echo 'Run as root.' >&2; exit 1; }
-if [[ $# == 0 ]] && ! mountpoint -q /boot/efi; then
-    echo 'Mount the EFI system partition at /boot/efi before updating boot files.' >&2
-    exit 1
+umask 022
+fail() { echo "Error: $*" >&2; exit 1; }
+[[ $EUID == 0 ]] || fail 'Run as root.'
+[[ $# -le 1 ]] || fail 'Usage: jaguar-update-boot [ROOT_UUID]'
+esp=/boot/efi
+# An explicit UUID also supports the unmounted image tree and installer chroot.
+if [[ $# == 0 ]] && ! mountpoint -q "$esp"; then
+    fail 'Mount the EFI system partition at /boot/efi before updating boot files.'
 fi
 JAGUAR_BOOT_DEFAULT=1
+JAGUAR_BOOT_KERNEL=linux
 # shellcheck source=/dev/null
 [[ ! -r /etc/default/jaguar-boot ]] || source /etc/default/jaguar-boot
-[[ $JAGUAR_BOOT_DEFAULT =~ ^[012]$ ]] || { echo 'Invalid JAGUAR_BOOT_DEFAULT (use 0, 1 or 2).' >&2; exit 1; }
+[[ $JAGUAR_BOOT_DEFAULT =~ ^[012]$ ]] || fail 'Invalid JAGUAR_BOOT_DEFAULT (use 0, 1 or 2).'
+[[ $JAGUAR_BOOT_KERNEL == linux || $JAGUAR_BOOT_KERNEL == linux-lts ]] ||
+    fail 'Invalid JAGUAR_BOOT_KERNEL (use linux or linux-lts).'
 root_uuid=${1:-$(findmnt -nro UUID /)}
-[[ $root_uuid =~ ^[0-9a-fA-F-]{36}$ ]] || { echo 'Invalid root UUID.' >&2; exit 1; }
-mkdir -p /boot/grub /boot/efi/EFI/BOOT
-cat > /boot/grub/grub.cfg <<EOF
-set timeout=5
-set default=$JAGUAR_BOOT_DEFAULT
-serial --unit=0 --speed=115200
-terminal_input console serial
-terminal_output console serial
-menuentry 'Arch Linux LTS - JaguarBoard' {
-    search --no-floppy --fs-uuid --set=root $root_uuid
-    linux /boot/vmlinuz-linux-lts root=UUID=$root_uuid rw rootwait console=ttyS0,115200n8 console=tty0
-    initrd /boot/initramfs-linux-lts.img
-}
-menuentry 'Arch Linux LTS - Bay Trail freeze workaround' {
-    search --no-floppy --fs-uuid --set=root $root_uuid
-    linux /boot/vmlinuz-linux-lts root=UUID=$root_uuid rw rootwait intel_idle.max_cstate=1 console=ttyS0,115200n8 console=tty0
-    initrd /boot/initramfs-linux-lts.img
-}
-menuentry 'Arch Linux LTS - basic display (nomodeset)' {
-    search --no-floppy --fs-uuid --set=root $root_uuid
-    linux /boot/vmlinuz-linux-lts root=UUID=$root_uuid rw rootwait nomodeset console=ttyS0,115200n8 console=tty0
-    initrd /boot/initramfs-linux-lts.img
-}
-EOF
-bootstrap=$(mktemp)
-trap 'rm -f "$bootstrap"' EXIT
-cat > "$bootstrap" <<EOF
-search --no-floppy --fs-uuid --set=root $root_uuid
-set prefix=(\$root)/boot/grub
-configfile /boot/grub/grub.cfg
-EOF
-for target in i386-efi x86_64-efi; do
-    case $target in i386-efi) name=BOOTIA32.EFI ;; *) name=BOOTX64.EFI ;; esac
-    grub-mkstandalone -O "$target" -o "/boot/efi/EFI/BOOT/$name" \
-        --locales='' --fonts='' \
-        --modules='part_gpt part_msdos fat ext2 normal linux search search_fs_uuid configfile serial terminal' \
-        "boot/grub/grub.cfg=$bootstrap"
+[[ $root_uuid =~ ^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$ ]] || fail 'Invalid root UUID.'
+mkdir -p /run/lock "$esp"
+exec 9>/run/lock/jaguar-update-boot.lock
+flock -x 9
+shopt -s nullglob
+declare -A versions=() needed=()
+for pkgbase in /usr/lib/modules/*/pkgbase; do
+    read -r kernel < "$pkgbase"
+    case $kernel in linux|linux-lts) ;; *) continue ;; esac
+    [[ ! -v versions[$kernel] ]] || fail "Multiple installed module directories for $kernel."
+    version=${pkgbase%/pkgbase}
+    version=${version##*/}
+    [[ $version =~ ^[a-zA-Z0-9.+_-]+$ ]] || fail 'Invalid kernel version.'
+    versions[$kernel]=$version
 done
+kernels=()
+for kernel in linux linux-lts; do
+    [[ -v versions[$kernel] ]] || continue
+    version=${versions[$kernel]}
+    [[ -s /boot/vmlinuz-$kernel && -s /boot/initramfs-$kernel.img ]] ||
+        fail "Missing $kernel boot files; run mkinitcpio -P first."
+    cmp -s "/usr/lib/modules/$version/vmlinuz" "/boot/vmlinuz-$kernel" ||
+        fail "$kernel in /boot does not match its installed modules; reinstall the kernel."
+    # A failed earlier mkinitcpio hook must not publish a stale initramfs.
+    lsinitcpio -l "/boot/initramfs-$kernel.img" | grep -Fx "usr/lib/modules/$version/" > /dev/null ||
+        fail "$kernel initramfs does not match its modules; run mkinitcpio -P first."
+    kernels+=("$kernel")
+    needed[$kernel]=0
+    for file in vmlinuz initramfs.img; do
+        case $file in vmlinuz) source="/boot/vmlinuz-$kernel" ;; *) source="/boot/initramfs-$kernel.img" ;; esac
+        if ! cmp -s "$source" "$esp/jaguar/$kernel/$version/$file"; then
+            needed[$kernel]=$((needed[$kernel] + $(stat -c %s "$source")))
+        fi
+    done
+done
+(( ${#kernels[@]} )) || fail 'Install linux or linux-lts before updating boot files.'
+if [[ ! -v versions[$JAGUAR_BOOT_KERNEL] ]]; then
+    echo "Configured kernel $JAGUAR_BOOT_KERNEL is absent; using ${kernels[0]}." >&2
+    JAGUAR_BOOT_KERNEL=${kernels[0]}
+fi
+for arch in ia32 x64; do
+    [[ -s /usr/lib/systemd/boot/efi/systemd-boot$arch.efi ]] || fail "Missing systemd $arch EFI loader."
+done
+require_space() {
+    local blocks block_size space bytes=$(( $1 + 1048576 ))
+    space=$(stat -f -c '%a %S' "$esp")
+    read -r blocks block_size <<< "$space"
+    (( blocks * block_size >= bytes )) ||
+        fail "EFI partition needs at least $(( (bytes + 1048575) / 1048576 )) MiB free to stage boot files."
+}
+# Preflight before changing live files; allow FAT rounding and loader files.
+for kernel in "${kernels[@]}"; do require_space "${needed[$kernel]}"; done
+stage=$(mktemp -d "$esp/.jaguar-update.XXXXXX")
+trap 'rm -rf -- "$stage"' EXIT
+mkdir -p "$esp/loader/entries"
+for kernel in "${kernels[@]}"; do
+    version=${versions[$kernel]}
+    require_space "${needed[$kernel]}"
+    mkdir -p "$stage/kernel" "$stage/entries" "$esp/jaguar/$kernel/$version"
+    for file in vmlinuz initramfs.img; do
+        case $file in vmlinuz) source="/boot/vmlinuz-$kernel" ;; *) source="/boot/initramfs-$kernel.img" ;; esac
+        cmp -s "$source" "$esp/jaguar/$kernel/$version/$file" || install -m644 "$source" "$stage/kernel/$file"
+    done
+    for choice in 0 1 2; do
+        options="root=UUID=$root_uuid rw rootwait"
+        case $choice in
+            0) title='normal' ;;
+            1) title='Bay Trail C-state workaround'; options+=' intel_idle.max_cstate=1' ;;
+            2) title='basic display'; options+=' nomodeset' ;;
+        esac
+        cat > "$stage/entries/jaguar-$kernel-$choice.conf" <<EOF
+title Arch Linux ($kernel) - $title
+version $version
+linux /jaguar/$kernel/$version/vmlinuz
+initrd /jaguar/$kernel/$version/initramfs.img
+options $options console=ttyS0,115200n8 console=tty0
+EOF
+    done
+    sync -f "$stage"
+    # Publish a complete kernel pair before switching its entries. Process one
+    # kernel at a time so linux and linux-lts can share the 256 MiB ESP.
+    for file in "$stage/kernel/"*; do mv -f -- "$file" "$esp/jaguar/$kernel/$version/${file##*/}"; done
+    sync -f "$esp"
+    for entry in "$stage/entries/"*; do mv -f -- "$entry" "$esp/loader/entries/${entry##*/}"; done
+    sync -f "$esp"
+    for old in "$esp/jaguar/$kernel/"*; do
+        [[ -d $old && ${old##*/} != "$version" ]] || continue
+        rm -rf -- "$old"
+    done
+done
+for arch in ia32 x64; do
+    for path in "EFI/systemd/systemd-boot$arch.efi" "EFI/BOOT/BOOT${arch^^}.EFI"; do
+        install -m644 "/usr/lib/systemd/boot/efi/systemd-boot$arch.efi" "$stage/loader.efi"
+        sync -f "$stage"
+        mkdir -p "$esp/${path%/*}"
+        mv -f -- "$stage/loader.efi" "$esp/$path"
+    done
+done
+cat > "$stage/loader.conf" <<EOF
+default jaguar-$JAGUAR_BOOT_KERNEL-$JAGUAR_BOOT_DEFAULT.conf
+timeout 5
+console-mode auto
+EOF
+sync -f "$stage"
+mv -f -- "$stage/loader.conf" "$esp/loader/loader.conf"
+for kernel in linux linux-lts; do
+    [[ ! -v versions[$kernel] ]] || continue
+    rm -f -- "$esp/loader/entries/jaguar-$kernel-"[012].conf
+    rm -rf -- "$esp/jaguar/$kernel"
+done
+sync -f "$esp"

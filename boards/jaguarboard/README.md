@@ -74,7 +74,7 @@ Firmware bitness is shown by `cat /sys/firmware/efi/fw_platform_size` (`32` or `
 First boot initializes the pacman keyring after NTP synchronization. Before
 updating, check `test -f /var/lib/jaguarboard/initialized`; if absent, inspect
 `journalctl -u jaguar-firstboot -u systemd-timesyncd`. SSH remains available.
-Keep the EFI partition mounted at `/boot/efi`, then run:
+Keep the EFI partition mounted and writable at `/boot/efi`, then run:
 
 ```sh
 sudo pacman -Syu
@@ -82,7 +82,7 @@ sudo pacman -Syu
 
 Package hooks regenerate the initramfs and refresh both EFI loaders and the
 kernel files on the EFI partition. Boot-package changes are blocked if that
-partition is unmounted. After changing initramfs settings, run
+partition is unmounted or read-only. After changing initramfs settings, run
 `sudo mkinitcpio -P` followed by `sudo jaguar-update-boot`. Resolve errors before
 rebooting; updates need free EFI space to stage a new kernel and initramfs.
 

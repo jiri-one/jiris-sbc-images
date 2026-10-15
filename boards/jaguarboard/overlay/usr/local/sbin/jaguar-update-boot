@@ -60,6 +60,11 @@ fi
 for arch in ia32 x64; do
     [[ -s /usr/lib/systemd/boot/efi/systemd-boot$arch.efi ]] || fail "Missing systemd $arch EFI loader."
 done
+# Reclaim staging directories left by an interrupted update while holding the lock.
+for stale in "$esp"/.jaguar-update.??????; do
+    [[ -d $stale && ! -L $stale ]] || continue
+    rm -rf -- "$stale"
+done
 require_space() {
     local blocks block_size space bytes=$(( $1 + 1048576 ))
     space=$(stat -f -c '%a %S' "$esp")

@@ -31,7 +31,7 @@ Target = mkinitcpio
 Target = mkinitcpio-git
 
 [Action]
-Description = Checking that /boot/efi is mounted before changing boot packages...
+Description = Checking that /boot/efi is mounted and writable before changing boot packages...
 When = PreTransaction
-Exec = /usr/bin/mountpoint -q /boot/efi
+Exec = /usr/bin/sh -c '/usr/bin/mountpoint -q /boot/efi && test -w /boot/efi'
 AbortOnFail

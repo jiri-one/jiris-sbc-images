@@ -3,7 +3,11 @@
 For the original **Intel Atom Z3735G JaguarBoard**, with 1 GB RAM and 16 GB eMMC.
 Arch Linux x86_64 with `linux-lts`, Ethernet, SSH, zram and a readable console
 font. The 6 GiB image fits an **8 GB USB drive** and can install itself to eMMC.
-Both 32-bit and 64-bit EFI loaders are included; Secure Boot must be disabled.
+
+Use **UEFI boot with Secure Boot disabled**. The same image works with **32-bit
+or 64-bit UEFI**: USB and installed eMMC include both loaders, and firmware
+selects the matching one. Linux is always 64-bit (`x86_64`), even with 32-bit
+UEFI. Legacy BIOS/CSM boot is not supported.
 
 An earlier build booted from USB and eMMC on v1.3 hardware. This build passed
 QEMU boot and installation checks; physical retesting is still needed.
@@ -41,8 +45,9 @@ python3 scripts/configure-image.py /path/to/arch-jaguar.img \
 ```
 
 Write `jaguar-configured.img` to the **whole USB drive**, erasing its contents.
-Connect Ethernet, select USB in firmware setup and find `jaguarboard` in your
-DHCP leases. Log in with `ssh jaguar@BOARD_IP`; `sudo` needs no password.
+Connect Ethernet, select the USB drive's **UEFI** entry in firmware setup and
+find `jaguarboard` in your DHCP leases. Log in with `ssh jaguar@BOARD_IP`;
+`sudo` needs no password.
 Enable console login with `sudo passwd jaguar` over SSH. Defaults are a US
 keyboard, UTC and the 16×32 `latarcyrheb-sun32` font. Direct SD-slot boot is untested.
 
@@ -61,6 +66,7 @@ After installation, run `sudo poweroff`, remove USB and start the board.
 If necessary, select **Arch Linux (eMMC)** or the eMMC's `EFI/BOOT/BOOTX64.EFI`
 (`BOOTIA32.EFI` for 32-bit firmware) in firmware setup. Check `findmnt /` and
 `findmnt /boot/efi` to confirm eMMC boot.
+Firmware bitness is shown by `cat /sys/firmware/efi/fw_platform_size` (`32` or `64`).
 
 ## Updates
 

@@ -17,9 +17,11 @@ Include = /etc/pacman.d/mirrorlist
 EOF
 pacman -Syu --noconfirm base glibc linux mkinitcpio efibootmgr intel-ucode \
     linux-firmware-intel linux-firmware-realtek openssh sudo zram-generator \
-    nano htop usbutils pciutils ethtool memtester rsync e2fsprogs dosfstools mtools
+    nano htop usbutils pciutils ethtool memtester rsync e2fsprogs dosfstools mtools wireless-regdb fbset
 # The container base does not include the generated hardware database.
 systemd-hwdb update
+# The world domain avoids a failing regulatory helper before a country is chosen.
+printf 'WIRELESS_REGDOM="00"\n' > /etc/conf.d/wireless-regdom
 install -m 644 /src/configs/mkinitcpio.conf /etc/mkinitcpio.conf
 tar -C /src/overlay --mode='u=rwX,go=rX' -cf - . |
     tar -C / -xf - --no-same-owner --no-overwrite-dir
@@ -33,7 +35,7 @@ EOF
 kernel_dirs=(/usr/lib/modules/*)
 [[ ${#kernel_dirs[@]} == 1 && -f ${kernel_dirs[0]}/vmlinuz ]]
 install -m 644 "${kernel_dirs[0]}/vmlinuz" /boot/vmlinuz-linux
-printf 'KEYMAP=us\nFONT=latarcyrheb-sun32\n' > /etc/vconsole.conf
+printf 'KEYMAP=us\n' > /etc/vconsole.conf
 mkinitcpio -P
 rm -f /boot/initramfs-linux-fallback.img
 ln -sf /usr/share/zoneinfo/UTC /etc/localtime
@@ -48,6 +50,9 @@ Type=ether
 DHCP=yes
 [DHCPv4]
 RouteMetric=100
+UseHostname=no
+[DHCPv6]
+UseHostname=no
 EOF
 cat > /etc/systemd/zram-generator.conf <<'EOF'
 [zram0]
@@ -76,6 +81,8 @@ chmod 440 /etc/sudoers.d/10-wheel
 visudo -cf /etc/sudoers
 systemctl enable sshd getty@tty1.service systemd-networkd systemd-resolved systemd-timesyncd \
     jaguar-firstboot.service jaguar-firstboot.timer
+# Allow the stock PAM stack to activate homed on demand.
+ln -sfn /usr/lib/systemd/system/systemd-homed.service /etc/systemd/system/dbus-org.freedesktop.home1.service
 ln -sfn /usr/lib/systemd/system/getty@.service /etc/systemd/system/autovt@.service
 systemctl set-default multi-user.target
 root_uuid=$(cat /proc/sys/kernel/random/uuid)

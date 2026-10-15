@@ -50,7 +50,8 @@ Connect Ethernet, select the USB drive's **UEFI** entry in firmware setup and
 find `jaguarboard` in your DHCP leases. Log in with `ssh jaguar@BOARD_IP`;
 `sudo` needs no password.
 Enable console login with `sudo passwd jaguar` over SSH. Defaults are a US
-keyboard, UTC and the 16×32 `latarcyrheb-sun32` font. Direct SD-slot boot is untested.
+keyboard, UTC and a font sized for the active display. Set `FONT` in
+`/etc/vconsole.conf` to override it. Direct SD-slot boot is untested.
 
 To install on eMMC, stop applications writing data and run:
 
@@ -90,6 +91,11 @@ For an optional alternative kernel, `sudo pacman -S linux-lts` adds its boot
 entries. To make it the default, set `JAGUAR_BOOT_KERNEL=linux-lts` in
 `/etc/default/jaguar-boot` and run `sudo jaguar-update-boot`.
 
+Intel graphics loads in the initramfs, before the login prompt. For a
+monitor-specific mode, set e.g. `JAGUAR_BOOT_OPTIONS='video=HDMI-A-1:1920x1080@60'`
+in `/etc/default/jaguar-boot` and run `sudo jaguar-update-boot`. Use a mode listed
+in `/sys/class/drm/card*-HDMI-A-1/modes`; the image leaves mode selection automatic.
+
 ## Stability
 
 Some JaguarBoards have a history of occasional freezes. We are monitoring this
@@ -98,10 +104,18 @@ to [Bay Trail idle-state issues](https://web.archive.org/web/20170503022532/http
 and [power-supply problems](https://web.archive.org/web/20170503022535/http://www.jaguarboard.org/index.php/forum/troubleshooting/607-debian-crashing.html?start=12);
 the cause on a particular board still needs to be established.
 
-The default systemd-boot entry uses `intel_idle.max_cstate=1`. This may increase
-power use and is not a confirmed fix; neither is switching to the current kernel.
-In `/etc/default/jaguar-boot`, set `JAGUAR_BOOT_DEFAULT` to `0` for normal boot,
-`1` for this workaround or `2` for `nomodeset`, then run `sudo jaguar-update-boot`.
+Normal boot is first and the default. In `/etc/default/jaguar-boot`, set
+`JAGUAR_BOOT_DEFAULT=1` to try `intel_idle.max_cstate=1`, or `2` for `nomodeset`,
+then run `sudo jaguar-update-boot`; `0` restores normal boot. The C-state workaround
+may increase power use and is not a confirmed fix; neither is the current kernel.
+
+Automatic probes for nonresponding tablet audio, battery and touch devices on
+the tested v1.3 board are disabled in `/etc/modprobe.d/jaguar-tablet-devices.conf`.
+USB and HDMI audio remain enabled. Some firmware and USB audio warnings remain;
+normal boot keeps them off the console with `loglevel=3`, while the full kernel
+log remains in `journalctl -b -k`. Basic display boot is verbose; to keep native
+graphics and show more messages, set `JAGUAR_BOOT_OPTIONS='loglevel=7'` and update
+the boot files.
 
 Optional minute-by-minute memory, temperature and OOM logging:
 

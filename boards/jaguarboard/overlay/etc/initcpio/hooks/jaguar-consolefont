@@ -1,0 +1,11 @@
+#!/usr/bin/ash
+# shellcheck shell=dash
+
+run_hook() {
+    /usr/local/sbin/jaguar-vconsole-font
+}
+
+run_latehook() {
+    # Re-evaluate after mounting root, in case graphics finished probing meanwhile.
+    /usr/local/sbin/jaguar-vconsole-font
+}

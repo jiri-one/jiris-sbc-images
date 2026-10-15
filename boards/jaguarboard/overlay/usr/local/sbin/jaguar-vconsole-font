@@ -1,0 +1,102 @@
+#!/bin/sh
+# Choose the largest bundled font leaving 80x30 cells when resolution permits.
+# This runs in both the BusyBox initramfs and systemd's real-root setup service.
+
+automatic_font() {
+    # Leave explicit font settings to the normal consolefont/systemd setup.
+    # Keyboard-only overrides should keep adaptive sizing.
+    FONT='' FONT_MAP='' FONT_UNIMAP='' FONT_SCALE=''
+    if [ -r /etc/vconsole.conf ]; then
+        # Root-owned shell-style assignments, as used by mkinitcpio.
+        # shellcheck source=/dev/null
+        . /etc/vconsole.conf
+    fi
+    [ -z "$FONT$FONT_MAP$FONT_UNIMAP$FONT_SCALE" ] || return 1
+    cmdline=''
+    if [ -r /proc/cmdline ]; then
+        IFS= read -r cmdline < /proc/cmdline || :
+    fi
+    # These patterns also cover rd.vconsole.* and quoted values. Retain systemd's
+    # compatibility with the older font.map/font.unimap kernel option spellings.
+    case $cmdline in
+        *vconsole.font=*|*vconsole.font_map=*|*vconsole.font_unimap=*|\
+        *vconsole.font_scale=*|*vconsole.font.map=*|*vconsole.font.unimap=*) return 1 ;;
+    esac
+    if [ -n "${CREDENTIALS_DIRECTORY:-}" ]; then
+        for setting in font font_map font_unimap font_scale; do
+            [ ! -e "$CREDENTIALS_DIRECTORY/vconsole.$setting" ] || return 1
+        done
+    fi
+}
+
+framebuffer_size() {
+    width='' height=''
+    # JaguarBoard has one HDMI output. Query its visible framebuffer dimensions;
+    # sysfs mode can be empty and virtual_size can include off-screen storage.
+    # -s only reads the mode. It neither selects a mode nor reads EDID defaults.
+    geometry=$(LC_ALL=C fbset -fb /dev/fb0 -s 2>/dev/null) || return 1
+    while read -r field x y _; do
+        if [ "$field" = geometry ]; then
+            width=$x height=$y
+            break
+        fi
+    done <<EOF
+$geometry
+EOF
+    case $width:$height in *[!0-9:]*|:*|*:) return 1 ;; esac
+    [ "$width" -gt 0 ] && [ "$height" -gt 0 ] &&
+        [ "$width" -le 32768 ] && [ "$height" -le 32768 ]
+}
+
+apply_font() {
+    console=$1
+    # setfont uses the tall-font kernel API for doubled fonts. If the driver or
+    # kernel rejects one, try the next smaller size without a boot warning.
+    if [ "$width" -ge 2560 ] && [ "$height" -ge 1920 ]; then
+        setfont -C "$console" -d latarcyrheb-sun32 2>/dev/null && return 0
+    fi
+    if [ "$width" -ge 1920 ] && [ "$height" -ge 1320 ]; then
+        setfont -C "$console" -d LatGrkCyr-12x22 2>/dev/null && return 0
+    fi
+    if [ "$width" -ge 1280 ] && [ "$height" -ge 960 ]; then
+        setfont -C "$console" latarcyrheb-sun32 2>/dev/null && return 0
+    fi
+    if [ "$width" -ge 960 ] && [ "$height" -ge 660 ]; then
+        setfont -C "$console" LatGrkCyr-12x22 2>/dev/null && return 0
+    fi
+    setfont -C "$console" latarcyrheb-sun16 2>/dev/null
+}
+
+main() {
+    automatic_font || return 0
+    # i915 briefly replaces the firmware framebuffer with a dummy console.
+    # Wait at most two seconds; headless boots must still complete successfully.
+    attempt=0
+    stable_size=''
+    while [ "$attempt" -lt 20 ]; do
+        applied=0
+        if framebuffer_size; then
+            for console in /dev/tty[1-6]; do
+                [ -c "$console" ] || continue
+                # Do not touch a graphics console, or mistake its silent setfont
+                # success for an applied font. --check also supports tall fonts.
+                if setfont -C "$console" --check 2>/dev/null && apply_font "$console"; then
+                    applied=1
+                fi
+            done
+        fi
+        if [ "$applied" -ne 0 ]; then
+            # A takeover can occur between tty1 and tty2. Repeat once after a
+            # short delay so an early failed console gets the settled font too.
+            [ "$stable_size" != "$width:$height" ] || return 0
+            stable_size=$width:$height
+        else
+            stable_size=''
+        fi
+        attempt=$((attempt + 1))
+        [ "$attempt" -eq 20 ] || sleep 0.1
+    done
+    return 0
+}
+
+main "$@"

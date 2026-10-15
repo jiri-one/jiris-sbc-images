@@ -1,0 +1,38 @@
+#!/bin/bash
+
+build() {
+    # Keep the other font settings from vconsole.conf local to this build hook.
+    # shellcheck disable=SC2034
+    local FONT='' FONT_MAP='' FONT_UNIMAP='' FONT_SCALE='' font
+    if [[ -r /etc/vconsole.conf ]]; then
+        # shellcheck source=/dev/null
+        . /etc/vconsole.conf
+    fi
+    if [[ -n $FONT ]]; then
+        # Keep mkinitcpio's normal handling for a user-selected fixed font.
+        # Source it in this shell so its add_runscript registration is retained.
+        # shellcheck source=/dev/null
+        . /usr/lib/initcpio/install/consolefont
+        build
+        return
+    fi
+
+    add_binary setfont
+    add_binary fbset
+    add_file /usr/local/sbin/jaguar-vconsole-font /usr/local/sbin/jaguar-vconsole-font 755
+    [[ ! -r /etc/vconsole.conf ]] || add_file /etc/vconsole.conf
+    # Decompress at build time: kbd otherwise needs an external decompressor in
+    # the initramfs. All three Unicode fonts are supplied by the existing kbd package.
+    for font in latarcyrheb-sun16 LatGrkCyr-12x22 latarcyrheb-sun32; do
+        gzip -cd "/usr/share/kbd/consolefonts/$font.psfu.gz" |
+            add_file - "/usr/share/kbd/consolefonts/$font.psfu" 644 || return 1
+    done
+    add_runscript
+}
+
+help() {
+    cat <<'EOF'
+Select a console font for the active JaguarBoard framebuffer while retaining at
+least 80 columns and 30 rows. A configured FONT uses the normal consolefont hook.
+EOF
+}

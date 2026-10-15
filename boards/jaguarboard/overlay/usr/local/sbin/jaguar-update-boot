@@ -9,13 +9,17 @@ esp=/boot/efi
 if [[ $# == 0 ]] && ! mountpoint -q "$esp"; then
     fail 'Mount the EFI system partition at /boot/efi before updating boot files.'
 fi
-JAGUAR_BOOT_DEFAULT=1
+JAGUAR_BOOT_DEFAULT=0
 JAGUAR_BOOT_KERNEL=linux
+JAGUAR_BOOT_OPTIONS=''
 # shellcheck source=/dev/null
 [[ ! -r /etc/default/jaguar-boot ]] || source /etc/default/jaguar-boot
 [[ $JAGUAR_BOOT_DEFAULT =~ ^[012]$ ]] || fail 'Invalid JAGUAR_BOOT_DEFAULT (use 0, 1 or 2).'
 [[ $JAGUAR_BOOT_KERNEL == linux || $JAGUAR_BOOT_KERNEL == linux-lts ]] ||
     fail 'Invalid JAGUAR_BOOT_KERNEL (use linux or linux-lts).'
+if [[ $JAGUAR_BOOT_OPTIONS == *$'\n'* || $JAGUAR_BOOT_OPTIONS == *$'\r'* ]]; then
+    fail 'JAGUAR_BOOT_OPTIONS must be a single line.'
+fi
 root_uuid=${1:-$(findmnt -nro UUID /)}
 [[ $root_uuid =~ ^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$ ]] || fail 'Invalid root UUID.'
 mkdir -p /run/lock "$esp"
@@ -88,16 +92,17 @@ for kernel in "${kernels[@]}"; do
     for choice in 0 1 2; do
         options="root=UUID=$root_uuid rw rootwait"
         case $choice in
-            0) title='normal' ;;
-            1) title='Bay Trail C-state workaround'; options+=' intel_idle.max_cstate=1' ;;
-            2) title='basic display'; options+=' nomodeset' ;;
+            0) title='normal'; options+=' loglevel=3' ;;
+            1) title='Bay Trail C-state workaround'; options+=' intel_idle.max_cstate=1 loglevel=3' ;;
+            2) title='basic display (verbose)'; options+=' nomodeset loglevel=7' ;;
         esac
         cat > "$stage/entries/jaguar-$kernel-$choice.conf" <<EOF
 title Arch Linux ($kernel) - $title
+sort-key jaguar-$kernel-$choice
 version $version
 linux /jaguar/$kernel/$version/vmlinuz
 initrd /jaguar/$kernel/$version/initramfs.img
-options $options console=ttyS0,115200n8 console=tty0
+options $options console=ttyS0,115200n8 console=tty0${JAGUAR_BOOT_OPTIONS:+ $JAGUAR_BOOT_OPTIONS}
 EOF
     done
     sync -f "$stage"

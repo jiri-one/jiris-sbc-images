@@ -96,6 +96,13 @@ cat > "$destination/etc/jaguarboard-image.conf" <<EOF
 ROOT_PARTUUID=$(blkid -s PARTUUID -o value "$rootpart")
 IMAGE_FLAVOUR=usb-emmc
 EOF
+# Keep the USB instructions out of the installed system's login banner.
+if [[ -f $destination/etc/motd && ! -L $destination/etc/motd ]]; then
+    sed -i \
+        -e '/^Install this system onto internal eMMC: sudo jaguar-install-emmc$/d' \
+        -e '/^The installer erases its selected target only after explicit confirmation\.$/d' \
+        "$destination/etc/motd"
+fi
 mount --rbind /dev "$destination/dev"
 mount --make-rslave "$destination/dev"
 chroot "$destination" /usr/local/sbin/jaguar-update-boot "$root_uuid"

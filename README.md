@@ -1,5 +1,10 @@
 # Jiri's SBC Images
 
+I like Arch Linux for its simplicity and use it almost everywhere. Getting it
+running on single-board computers has often taken more work, but AI has made
+that easier. I started building Arch images with AI assistance for the SBCs
+I own, and I'm sharing them here for anyone who might find them useful.
+
 Headless **Arch Linux** image builders with Ethernet, DHCP and SSH.
 Raspberry Pi 4 and ODROID-M1S use community **Arch Linux Ports AArch64**
 packages. JaguarBoard uses official **Arch Linux x86_64** packages.
@@ -53,5 +58,3 @@ retain their own licenses. Thanks to [Arch Linux Ports](https://ports.archlinux.
 the [pftf firmware maintainers](https://github.com/pftf/RPi4),
 [EndeavourOS ARM](https://github.com/endeavouros-arm/image-build-script), and
 [k1nerda's M1S guide](https://forum.odroid.com/viewtopic.php?f=214&t=50877).
-
-Created with AI assistance and human review by Jiří.

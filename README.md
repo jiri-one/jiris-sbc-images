@@ -4,6 +4,8 @@ I like Arch Linux for its simplicity and use it almost everywhere. Getting it
 running on single-board computers has often taken more work, but AI has made
 that easier. I started building Arch images with AI assistance for the SBCs
 I own, and I'm sharing them here for anyone who might find them useful.
+This is a personal side project: maintenance follows the boards and configurations
+I use, rather than a commitment to support every alternative.
 
 Headless **Arch Linux** image builders with Ethernet, DHCP and SSH.
 Raspberry Pi 4 and ODROID-M1S use community **Arch Linux Ports AArch64**
@@ -15,7 +17,7 @@ own risk.
 
 | Board | Boot | Status |
 | --- | --- | --- |
-| [Raspberry Pi 4](boards/raspberry-pi-4/README.md) | SD/USB, EDK2 UEFI + systemd-boot | Offline and generic QEMU checks passed; physical Pi boot is untested. |
+| [Raspberry Pi 4](boards/raspberry-pi-4/README.md) | Native Raspberry Pi boot, default | SD boot, full RAM, CPU scaling, Ethernet, SSH and 4K HDMI checked. USB-root boot and kernel upgrades untested. [UEFI is deprecated](boards/raspberry-pi-4/docs/UEFI-LEGACY.md), with no planned maintenance. |
 | [ODROID-M1S](boards/odroid-m1s/README.md) | SD/eMMC, U-Boot + extlinux | Offline and generic QEMU checks passed. Earlier SD/eMMC builds booted on hardware; this rebuild still needs hardware testing. |
 | [JaguarBoard](boards/jaguarboard/README.md) | USB → eMMC, systemd-boot with 32/64-bit EFI | eMMC upgrade tested on v1.3 hardware; new USB image awaits hardware testing. Intermittent freezes are being investigated. |
 
@@ -34,8 +36,8 @@ another directory is deliberately rejected.
 
 `scripts/` contains build and image-verification tools, `configs/` holds package
 sources and board settings, and `overlay/` contains files installed in the image.
-Builds produce `.img`, `.img.zst` and `SHA256SUMS` under the board's `artifacts/`.
-Package versions and input hashes are recorded there too; rolling repositories
+Builds produce `.img`, `.img.zst` and `SHA256SUMS` under the board's `artifacts/`
+(`artifacts/native/` for Raspberry Pi 4). Package versions and input hashes are recorded there too; rolling repositories
 mean later builds can contain different packages.
 
 ## Images and login

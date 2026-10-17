@@ -1,9 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# During bootstrap, packages are installed before the image is personalized.
-[[ -f /etc/rpi4-image.conf ]] || exit 0
+# Only the image bootstrap may install packages before personalization.
+if [[ ! -f /etc/rpi4-image.conf ]]; then
+    [[ ${RPI4_IMAGE_BUILD:-0} == 1 ]] || {
+        echo 'Image configuration is missing: /etc/rpi4-image.conf; refusing boot update.' >&2
+        exit 1
+    }
+    exit 0
+fi
 # The builder creates this root-owned file, also used by the first-boot service.
+RPI4_BOOT_MODE=uefi
+RPI4_FIRMWARE_TABLES=acpi
 # shellcheck source=/dev/null
 source /etc/rpi4-image.conf
 [[ ${ROOT_PARTUUID:-} =~ ^[[:xdigit:]]{8}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{4}-[[:xdigit:]]{12}$ ]] || {
@@ -15,6 +23,16 @@ source /etc/rpi4-image.conf
     exit 1
 }
 [[ ${IMAGE_FLAVOUR:-} == sd-usb ]] || { echo 'Unsupported image flavour.' >&2; exit 1; }
+case $RPI4_BOOT_MODE in
+    uefi)
+        case $RPI4_FIRMWARE_TABLES in
+            acpi|devicetree) ;;
+            *) echo 'Invalid RPI4_FIRMWARE_TABLES in /etc/rpi4-image.conf; use acpi or devicetree.' >&2; exit 1 ;;
+        esac
+        ;;
+    native) ;;
+    *) echo 'Invalid RPI4_BOOT_MODE in /etc/rpi4-image.conf; use uefi or native.' >&2; exit 1 ;;
+esac
 
 # The image builder prepares a directory tree before creating the FAT filesystem.
 if [[ ${RPI4_IMAGE_BUILD:-0} != 1 ]]; then
@@ -25,7 +43,7 @@ if [[ ${RPI4_IMAGE_BUILD:-0} != 1 ]]; then
         exit 1
     }
     [[ $(findmnt -n -o FSTYPE --target /boot) == vfat ]] || {
-        echo '/boot must be the FAT EFI System Partition.' >&2
+        echo '/boot must be the FAT boot partition.' >&2
         exit 1
     }
     options=$(findmnt -n -o OPTIONS --target /boot)

@@ -2,9 +2,24 @@
 set -euo pipefail
 [[ $EUID -eq 0 ]] || { echo 'Run as root.' >&2; exit 1; }
 if [[ ! -f /etc/rpi4-image.conf ]]; then
+    [[ ${RPI4_IMAGE_BUILD:-0} == 1 ]] || {
+        echo 'Image configuration is missing: /etc/rpi4-image.conf; refusing boot update.' >&2
+        exit 1
+    }
     echo 'No image configuration yet; the image builder will prepare boot files.'
     exit 0
 fi
+
+# A native update owns the same lock in its backend. Dispatch before acquiring
+# it here, so direct backend calls and package hooks cannot deadlock each other.
+RPI4_BOOT_MODE=uefi
+# shellcheck source=/dev/null
+source /etc/rpi4-image.conf
+case $RPI4_BOOT_MODE in
+    uefi) ;;
+    native) exec python /usr/local/lib/rpi4/update-native-boot.py ;;
+    *) echo 'Invalid RPI4_BOOT_MODE in /etc/rpi4-image.conf; use uefi or native.' >&2; exit 1 ;;
+esac
 
 # Also serialize manual refreshes with package hooks. This lock lives on rootfs,
 # because the ESP may not be mounted and FAT does not implement Unix locks.
@@ -12,8 +27,19 @@ mkdir -p /run/lock
 exec 9>/run/lock/rpi4-update-boot.lock
 flock -x 9
 /usr/local/sbin/rpi4-check-boot
+RPI4_BOOT_MODE=uefi
+RPI4_FIRMWARE_TABLES=acpi
 # shellcheck source=/dev/null
 source /etc/rpi4-image.conf
+[[ $RPI4_BOOT_MODE == uefi ]] || {
+    echo 'Boot mode changed while waiting for the update lock; rerun rpi4-update-boot.' >&2
+    exit 1
+}
+case $RPI4_FIRMWARE_TABLES in
+    acpi) table_options='acpi=on' ;;
+    devicetree) table_options='acpi=off module_blacklist=vc4,v3d' ;;
+    *) echo 'Invalid RPI4_FIRMWARE_TABLES in /etc/rpi4-image.conf; use acpi or devicetree.' >&2; exit 1 ;;
+esac
 
 kernel_list=$(pacman -Qql linux | sed -n '\|^/usr/lib/modules/[^/]*/vmlinuz$|p')
 [[ -n $kernel_list ]] || { echo 'No package-owned linux kernel found.' >&2; exit 1; }
@@ -104,6 +130,8 @@ fi
 staging=''
 sync -f /boot/rpi4
 
+# The Ports kernel enables the destructive PSCI development self-test.
+# With pftf ACPI firmware it offlines CPUs that cannot return; skip this test.
 entry=$(mktemp /boot/loader/entries/.rpi4.conf.XXXXXX)
 temporary_files+=("$entry")
 cat > "$entry" <<EOF
@@ -116,8 +144,10 @@ sort-key arch-rpi4
 architecture aa64
 linux /rpi4/$release/linux.efi
 initrd /rpi4/$release/initramfs-linux.img
-options root=PARTUUID=$ROOT_PARTUUID rw rootwait rootfstype=ext4 console=ttyAMA0,115200 console=tty1 systemd.show_status=yes
+options root=PARTUUID=$ROOT_PARTUUID rw rootwait rootfstype=ext4 console=ttyAMA0,115200 console=tty1 systemd.show_status=yes initcall_blacklist=psci_checker $table_options
 EOF
+# ACPI is the default. Device Tree requires UEFI to expose its fixed-up tree;
+# keep simpledrm in that mode until the native graphics drivers are validated.
 # Deliberately omit a devicetree directive: EDK2 applies hardware-specific
 # PSCI, MAC and PCIe fixups. Replacing its tree with a raw DTB loses those fixes.
 
@@ -164,4 +194,4 @@ for directory in /boot/rpi4/*; do
     fi
 done
 sync -f /boot/rpi4
-printf 'Boot files ready for kernel %s (EDK2 firmware tables).\n' "$kver"
+printf 'Boot files ready for kernel %s (EDK2 %s tables).\n' "$kver" "$RPI4_FIRMWARE_TABLES"

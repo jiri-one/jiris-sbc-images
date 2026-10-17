@@ -1,0 +1,15 @@
+# Raspberry Pi 4 native mainline Linux boot.
+[all]
+arm_64bit=1
+enable_gic=1
+kernel_address=0x200000
+start_file=start4.elf
+fixup_file=fixup4.dat
+arm_boost=1
+disable_fw_kms_setup=1
+camera_auto_detect=0
+display_auto_detect=0
+# USB-C supplies power; rear USB-A ports remain enabled.
+dtoverlay=rpi4-usb-c-data-disable
+# Select one complete kernel, matching DTB, initramfs and command line.
+include native-current.txt

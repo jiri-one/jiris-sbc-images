@@ -1,5 +1,9 @@
 Raspberry Pi 4 UEFI firmware v1.53: notices and source locations
 
+Native images use only the separately pinned start4.elf/fixup4.dat pair and
+its Broadcom licence from these firmware sources. Their DTB comes from the
+linux-dtbs package. Other notices below are retained for the legacy UEFI variant.
+
 Firmware release:
 https://github.com/pftf/RPi4/releases/tag/v1.53
 pftf/RPi4 commit ab5d6c98fcf9c38a95b11ea862e701d9c27d5653
@@ -22,8 +26,11 @@ Components selected by the RPi4 firmware build:
   https://github.com/tianocore/edk2/tree/2970e5699ba6267f3384ffab20f96647578aebc8/MdeModulePkg/Library/LzmaCustomDecompressLib
 
 start4.elf and fixup4.dat: RaspberryPi-LICENCE.broadcom.
-Their bytes match raspberrypi/firmware at:
-https://github.com/raspberrypi/firmware/tree/3d301dd924bcd758a4c8cb19fe8531031f033f43
+This matched runtime pair is pinned separately from the UEFI release:
+https://github.com/raspberrypi/firmware/releases/tag/1.20260915
+https://github.com/raspberrypi/firmware/tree/6f0881cba8bea8ec24956a5718714730e9936ec5
+start4.elf SHA256: 560ead37044d849325755d3684ac1f74654b3ce6450604a42df6dd832cda9ede
+fixup4.dat SHA256: d181d5055daebac22513d6904fa9ce21d1e99b852cc391af095ade6f0b45c400
 
 Device trees and overlays: RaspberryPi-COPYING.linux and RaspberryPi-README.txt.
 The three bcm2711-rpi-*.dtb files match firmware commit

@@ -29,8 +29,11 @@ Target = linux-dtbs
 Target = mkinitcpio
 Target = mkinitcpio-git
 Target = systemd
+Target = kbd
+Target = fbset
+Target = terminus-font
 
 [Action]
-Description = Refreshing Raspberry Pi 4 EFI kernel, initramfs and systemd-boot...
+Description = Refreshing Raspberry Pi 4 boot files...
 When = PostTransaction
 Exec = /usr/local/sbin/rpi4-update-boot

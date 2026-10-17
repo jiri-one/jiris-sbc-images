@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Boot the image's EFI loader on QEMU virt using disposable disk/firmware copies.
+"""Boot the image on QEMU virt using a disposable writable disk overlay.
 
 This exercises the AArch64 Cortex-A72 CPU baseline, not Raspberry Pi hardware
-or its pftf firmware. The input disk is never attached writable to QEMU.
+or its firmware. UEFI uses generic AAVMF; native loads the selected kernel and
+initramfs with QEMU's device tree. The input disk is never attached writable.
 """
 
 import argparse
@@ -12,6 +13,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import runpy
 import select
 import shlex
 import socket
@@ -99,8 +101,13 @@ def test_entry(config, fields):
     return "\n".join(lines) + "\n", " ".join(options)
 
 
-def guest_script(kernel_version, root_partuuid, boot_partuuid, original_root_bytes, timeout):
+def guest_script(kernel_version, root_partuuid, boot_partuuid, original_root_bytes, timeout, boot_mode="native"):
     """Assertions run only in the disposable qcow2 guest via its debug console."""
+    if boot_mode not in ("uefi", "native"):
+        raise ValueError("Unsupported QEMU boot mode")
+    efi_check = "-d" if boot_mode == "uefi" else "! -d"
+    loader_check = "bootctl status --no-pager" if boot_mode == "uefi" else ": # Direct kernel boot has no EFI loader."
+    firmware_name = "generic_AAVMF" if boot_mode == "uefi" else "QEMU_direct_kernel"
     return f"""#!/bin/bash
 set -euo pipefail
 export LC_ALL=C
@@ -121,7 +128,7 @@ trap finish EXIT
 trap 'printf "RPI4_QEMU_ASSERTION_FAILED line=%s\\n" "$LINENO" >&2' ERR
 state=$(systemctl is-system-running --wait) || true
 [[ $state == running ]]
-[[ -d /sys/firmware/efi ]]
+[[ {efi_check} /sys/firmware/efi ]]
 [[ $(uname -m) == aarch64 && $(uname -r) == {shlex.quote(kernel_version)} ]]
 root_device=$(readlink -f /dev/disk/by-partuuid/{root_partuuid})
 [[ $(findmnt -n -o SOURCE /) == "$root_device" ]]
@@ -161,8 +168,11 @@ if ! timeout {min(300, timeout)}s /bin/bash -c 'until [[ -f /var/lib/rpi4/initia
 fi
 [[ -e /run/systemd/timesync/synchronized ]]
 [[ $(timedatectl show -p NTPSynchronized --value) == yes ]]
-[[ -s /etc/pacman.d/gnupg/pubring.gpg ]]
-gpg --batch --homedir /etc/pacman.d/gnupg --list-keys {PORTS_KEY} > /dev/null
+# GnuPG may store keys in pubring.kbx or keyboxd instead of pubring.gpg.
+# Ask GnuPG for the exact primary fingerprint so every backend is checked.
+gpg --batch --homedir /etc/pacman.d/gnupg --with-colons --fingerprint \\
+    --list-keys {PORTS_KEY} > /run/rpi4-qemu-ports-key.txt
+[[ $(awk -F: '$1 == "fpr" {{print $10; exit}}' /run/rpi4-qemu-ports-key.txt) == {PORTS_KEY} ]]
 printf 'RPI4_QEMU_FIRSTBOOT initialized=yes real_time_sync=yes ports_key=present\\n'
 exec 3<>/dev/tcp/127.0.0.1/22
 IFS= read -r -t 10 ssh_greeting <&3
@@ -185,14 +195,22 @@ ssh_result=$(ssh -F /dev/null -i /run/rpi4-qemu-ssh/key -p 22 \\
 [[ $ssh_result == RPI4_SSH_LOGIN_OK ]]
 rm -rf /run/rpi4-qemu-ssh /home/rpi/.ssh/authorized_keys
 printf 'RPI4_QEMU_SSH_LOGIN user=rpi method=publickey password_locked=yes sudo=yes\\n'
+if pacman -Qq powertop >/dev/null 2>&1; then
+    [[ $(command -v powertop) == /usr/local/sbin/powertop ]]
+    cpu_mount_before=$(findmnt -n -o TARGET,OPTIONS --target /sys/devices/system/cpu)
+    timeout 20s /usr/local/sbin/powertop --version > /run/rpi4-qemu-powertop-version.txt
+    grep -qi powertop /run/rpi4-qemu-powertop-version.txt
+    [[ $(findmnt -n -o TARGET,OPTIONS --target /sys/devices/system/cpu) == "$cpu_mount_before" ]]
+    printf 'RPI4_QEMU_POWERTOP guarded_version=yes cpu_mount_unchanged=yes\\n'
+fi
 pacman -Q linux linux-dtbs mkinitcpio openssh
 pacman -Qk > /run/rpi4-qemu-package-files.log
 printf 'RPI4_QEMU_PACKAGE_FILES_OK packages=%s\\n' "$(wc -l < /run/rpi4-qemu-package-files.log)"
-bootctl status --no-pager
+{loader_check}
 findmnt --target /
 findmnt --target /boot
 [[ $(systemctl is-system-running) == running ]]
-printf 'RPI4_QEMU_RUNTIME kernel=%s firmware=generic_AAVMF board=QEMU_virt\\n' "$(uname -r)"
+printf 'RPI4_QEMU_RUNTIME kernel=%s firmware={firmware_name} board=QEMU_virt\\n' "$(uname -r)"
 """
 
 
@@ -253,7 +271,7 @@ def run_guest(command, run_dir, injection, timeout):
                         process.stdin.write(injection)
                         process.stdin.flush()
                         injected = True
-                        print("EFI boot reached the debug shell; running guest assertions.", flush=True)
+                        print("Boot reached the debug shell; running guest assertions.", flush=True)
                     if re.search(r"(?m)^RPI4_QEMU_CHECK_PASS$", plain):
                         if not passed:
                             print("Guest assertions passed; waiting for clean shutdown.", flush=True)
@@ -270,7 +288,7 @@ def run_guest(command, run_dir, injection, timeout):
             if process.poll() is not None and process.returncode != 0:
                 failure = failure or f"QEMU exited with status {process.returncode}."
             if not injected:
-                failure = failure or "EFI boot did not reach the guest debug shell."
+                failure = failure or "Boot did not reach the guest debug shell."
             if not passed:
                 failure = failure or "Guest did not report successful runtime assertions."
     finally:
@@ -287,13 +305,20 @@ def run_guest(command, run_dir, injection, timeout):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("image", nargs="?", type=Path, default=REPO / "artifacts/rpi4-archlinux-ports-sd-usb.img")
+    parser.add_argument("image", nargs="?", type=Path)
+    parser.add_argument("--boot-mode", choices=("uefi", "native"),
+                        default=os.environ.get("RPI4_BOOT_MODE") or "native",
+                        help="Boot profile (default: native; UEFI is deprecated)")
     parser.add_argument("--container", help="prepared rootless tools container, normally arch-rpi4-tools")
     parser.add_argument("--timeout", type=int, default=900, help="boot and assertions timeout in seconds")
     parser.add_argument("--firmware-code", default="/usr/share/AAVMF/AAVMF_CODE.fd", help="AAVMF code path in the tool environment")
     parser.add_argument("--firmware-vars", default="/usr/share/AAVMF/AAVMF_VARS.fd", help="AAVMF variable template in the tool environment")
     args = parser.parse_args()
-    source = args.image.resolve(strict=True)
+    if args.boot_mode not in ("native", "uefi"):
+        parser.error("RPI4_BOOT_MODE must be native or uefi")
+    source = (args.image or REPO / ("artifacts/native/rpi4-archlinux-ports-native-sd-usb.img"
+                                   if args.boot_mode == "native" else
+                                   "artifacts/rpi4-archlinux-ports-sd-usb.img")).resolve(strict=True)
     if not source.is_file() or args.timeout < 60:
         parser.error("Expected a regular raw image file and a timeout of at least 60 seconds.")
     if "," in str(source) or "," in str(REPO):
@@ -309,8 +334,9 @@ def main():
     def run(*command, **kwargs):
         return subprocess.run(runner + list(command), check=True, **kwargs)
 
-    (REPO / "build").mkdir(exist_ok=True)
-    run_dir = Path(tempfile.mkdtemp(prefix="qemu-test-", dir=REPO / "build"))
+    build_dir = REPO / ("build/native" if args.boot_mode == "native" else "build")
+    build_dir.mkdir(parents=True, exist_ok=True)
+    run_dir = Path(tempfile.mkdtemp(prefix="qemu-test-", dir=build_dir))
     print(f"QEMU verification artifacts: {run_dir}", flush=True)
     before_hash = sha256(source)
     report = {
@@ -318,7 +344,9 @@ def main():
         "failure": "Verification did not complete.",
         "image": str(source),
         "image_sha256_before": before_hash,
-        "platform": "QEMU virt, Cortex-A72, TCG, virtio block/network/RNG, generic AAVMF",
+        "boot_mode": args.boot_mode,
+        "platform": "QEMU virt, Cortex-A72, TCG, virtio block/network/RNG, " +
+                    ("generic AAVMF" if args.boot_mode == "uefi" else "direct kernel boot with QEMU device tree"),
         "physical_board_boot_verified": False,
         "pi_firmware_verified": False,
         "clock_test_policy": "Real guest NTP synchronization required; no clock or synchronization marker injected.",
@@ -334,41 +362,73 @@ def main():
         backing = run_dir / "test-only-backing.raw"
         subprocess.run(["cp", "--reflink=auto", "--sparse=always", "--", str(source), str(backing)], check=True)
         esp = f"{tool_path(backing)}@@{boot['start'] * 512}"
-        config = run("mtype", "-i", esp, f"::{ENTRY}", capture_output=True, text=True).stdout
+        if args.boot_mode == "native":
+            verifier = runpy.run_path(str(REPO / "scripts/verify-images.py"))
+            selection = run("mtype", "-i", esp, "::/native-current.txt", capture_output=True, text=True).stdout
+            native = verifier["native_fields"](selection)
+            options = run("mtype", "-i", esp, "::/" + native["cmdline"], capture_output=True, text=True).stdout.strip()
+            if len(options.splitlines()) != 1:
+                raise ValueError("Native command line must be one line")
+            config = f"linux /{native['kernel']}\ninitrd /{native['initramfs']}\noptions {options}\n"
+        else:
+            config = run("mtype", "-i", esp, f"::{ENTRY}", capture_output=True, text=True).stdout
         fields = read_entry(config, root_partuuid)
-        files = {"kernel": fields["linux"], "initramfs": fields["initrd"], "efi_loader": "/EFI/BOOT/BOOTAA64.EFI"}
+        files = {"kernel": fields["linux"], "initramfs": fields["initrd"]}
+        if args.boot_mode == "uefi":
+            files["efi_loader"] = "/EFI/BOOT/BOOTAA64.EFI"
+        else:
+            files["pi_dtb"] = "/" + native["device_tree"]
         for name, boot_path in files.items():
             destination = run_dir / name
             run("mcopy", "-i", esp, f"::{boot_path}", tool_path(destination))
             report[f"{name}_sha256"] = sha256(destination)
-        with (run_dir / "kernel").open("rb") as kernel:
-            if kernel.read(2) != b"MZ":
-                raise ValueError("EFI entry does not point to a PE/COFF EFI kernel.")
+        if args.boot_mode == "native":
+            raw = verifier["native_backend"]()["raw_image"]((run_dir / "kernel").read_bytes())
+            (run_dir / "qemu-kernel").write_bytes(raw)
+            report["raw_kernel_sha256"] = hashlib.sha256(raw).hexdigest()
+        else:
+            with (run_dir / "kernel").open("rb") as kernel:
+                if kernel.read(2) != b"MZ":
+                    raise ValueError("EFI entry does not point to a PE/COFF EFI kernel.")
         version_path = str(PurePosixPath(fields["linux"]).parent / "kernel-version")
         kernel_version = run("mtype", "-i", esp, f"::{version_path}", capture_output=True, text=True).stdout.strip()
         if not re.fullmatch(r"[0-9A-Za-z._+\-]+", kernel_version):
-            raise ValueError("Invalid kernel version in the EFI boot set.")
+            raise ValueError("Invalid kernel version in the boot set.")
         patched, command_line = test_entry(config, fields)
         config_path = run_dir / "test-only-entry.conf"
         config_path.write_text(patched)
-        run("mcopy", "-o", "-i", esp, tool_path(config_path), f"::{ENTRY}")
+        if args.boot_mode == "uefi":
+            run("mcopy", "-o", "-i", esp, tool_path(config_path), f"::{ENTRY}")
+        else:
+            # QEMU virt RAM starts at 1 GiB; the Pi's low-CMA range cannot apply.
+            # This alters only the direct-boot test arguments, never the disk.
+            command_line = " ".join(word for word in shlex.split(command_line) if not word.startswith("cma="))
+            report["test_only_removed_options"] = [word for word in shlex.split(fields["options"]) if word.startswith("cma=")]
         backing.chmod(0o444)
         snapshot = run_dir / "runtime.qcow2"
         run("qemu-img", "create", "-q", "-f", "qcow2", "-F", "raw", "-b", tool_path(backing), tool_path(snapshot))
         snapshot_bytes = max(10 * 1024**3, source.stat().st_size + 2 * 1024**3)
         run("qemu-img", "resize", "-q", tool_path(snapshot), str(snapshot_bytes))
-        variables = run_dir / "AAVMF_VARS.fd"
-        run("cp", "--sparse=always", "--", args.firmware_vars, tool_path(variables))
-        firmware_hash = run("sha256sum", args.firmware_code, capture_output=True, text=True).stdout.split()[0]
+        boot_arguments = []
+        if args.boot_mode == "uefi":
+            variables = run_dir / "AAVMF_VARS.fd"
+            run("cp", "--sparse=always", "--", args.firmware_vars, tool_path(variables))
+            firmware_hash = run("sha256sum", args.firmware_code, capture_output=True, text=True).stdout.split()[0]
+            boot_arguments = ["-drive", f"if=pflash,format=raw,readonly=on,file={args.firmware_code}",
+                              "-drive", f"if=pflash,format=raw,file={tool_path(variables)}"]
+            report.update(firmware_code=args.firmware_code, firmware_code_sha256=firmware_hash, efi_entry=ENTRY)
+        else:
+            boot_arguments = ["-kernel", tool_path(run_dir / "qemu-kernel"),
+                              "-initrd", tool_path(run_dir / "initramfs"), "-append", command_line]
+            report["native_selector"] = selection
         version = run("qemu-system-aarch64", "--version", capture_output=True, text=True).stdout.splitlines()[0]
-        checks = guest_script(kernel_version, root_partuuid, boot_partuuid, original_root_bytes, args.timeout)
+        checks = guest_script(kernel_version, root_partuuid, boot_partuuid, original_root_bytes, args.timeout, args.boot_mode)
         (run_dir / "guest-checks.sh").write_text(checks)
         command = runner + [
             "timeout", "--signal=TERM", "--kill-after=5", str(args.timeout + 30),
             "qemu-system-aarch64", "-machine", "virt,gic-version=3", "-cpu", "cortex-a72",
             "-accel", "tcg,thread=multi", "-smp", "2", "-m", "2048",
-            "-drive", f"if=pflash,format=raw,readonly=on,file={args.firmware_code}",
-            "-drive", f"if=pflash,format=raw,file={tool_path(variables)}",
+            *boot_arguments,
             "-drive", f"if=none,id=rootdisk,format=qcow2,file={tool_path(snapshot)}",
             "-device", "virtio-blk-pci,drive=rootdisk,bootindex=1",
             "-netdev", "user,id=net0", "-device", "virtio-net-pci,netdev=net0,romfile=",
@@ -379,15 +439,12 @@ def main():
         report.update({
             "kernel_version": kernel_version,
             "qemu_version": version,
-            "firmware_code": args.firmware_code,
-            "firmware_code_sha256": firmware_hash,
-            "efi_entry": ENTRY,
             "original_root_partition_bytes": original_root_bytes,
             "snapshot_disk_bytes": snapshot_bytes,
             "test_only_boot_arguments": command_line,
             "firstboot_wait_timeout_seconds": min(300, args.timeout),
         })
-        print(f"Starting {version}; EFI kernel {kernel_version}; Cortex-A72; timeout {args.timeout}s", flush=True)
+        print(f"Starting {version}; {args.boot_mode} kernel {kernel_version}; Cortex-A72; timeout {args.timeout}s", flush=True)
         report.update(run_guest(command, run_dir, inject_script(checks), args.timeout))
     except (OSError, ValueError, KeyError, subprocess.SubprocessError) as error:
         report["passed"] = False

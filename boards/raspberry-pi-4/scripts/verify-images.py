@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import runpy
 import shutil
 import stat
 import struct
@@ -16,10 +17,10 @@ import zlib
 
 PROJECT = Path(__file__).resolve().parent.parent
 ARTIFACTS = PROJECT / "artifacts"
-VERIFY = PROJECT / "build/image-verification"
+VERIFY = PROJECT / "build/native/image-verification"
 MIB = 1024 * 1024
 GIB = 1024 * MIB
-IMAGE_NAME = "rpi4-archlinux-ports-sd-usb.img"
+UEFI_IMAGE_NAME = "rpi4-archlinux-ports-sd-usb.img"
 ESP_TYPE = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
 ROOT_ARM64 = "b921b045-1df0-41c3-af44-4c6f280d3fae"
 
@@ -265,6 +266,85 @@ def loader_fields(text):
     return fields
 
 
+def native_fields(text):
+    """Accept one complete, content-addressed native firmware selection."""
+    fields = {}
+    names = {"kernel": "kernel8.img", "device_tree": "bcm2711-rpi-4-b.dtb",
+             "initramfs": "initramfs-linux.img", "cmdline": "cmdline.txt"}
+    for line in text.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("initramfs "):
+            parts = line.split()
+            require(len(parts) == 3 and parts[2] == "followkernel", "Invalid native initramfs directive")
+            key, value = parts[:2]
+        else:
+            key, separator, value = line.partition("=")
+            require(separator and key in names, "Unexpected native selector directive")
+        require(key not in fields, "Duplicate native selector directive")
+        require(re.fullmatch(r"native/[0-9a-f]{24}/" + re.escape(names[key]), value) is not None,
+                "Unsafe native boot-set path")
+        fields[key] = value
+    require(set(fields) == set(names), "Incomplete native selector")
+    require(len({str(PurePosixPath(value).parent) for value in fields.values()}) == 1,
+            "Native selector mixes boot sets")
+    return fields
+
+
+def native_backend():
+    return runpy.run_path(str(PROJECT / "overlay/usr/local/lib/rpi4/update-native-boot.py"))
+
+
+def verify_native_boot(filesystem, metadata, boot_hashes):
+    require(not any(path == "RPI_EFI.fd" or path.startswith(("EFI/", "loader/", "rpi4/"))
+                    for path in boot_hashes), "UEFI boot files leaked into native image")
+    text = fat_file(filesystem, "/native-current.txt").decode()
+    require(text == metadata["native_selector"], "Native selector differs from metadata")
+    fields = native_fields(text)
+    config = fat_file(filesystem, "/config.txt").decode()
+    settings = [line.strip() for line in config.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    expected = {"[all]", "arm_64bit=1", "enable_gic=1", "kernel_address=0x200000",
+                "start_file=start4.elf", "fixup_file=fixup4.dat", "arm_boost=1",
+                "disable_fw_kms_setup=1", "camera_auto_detect=0", "display_auto_detect=0",
+                "dtoverlay=rpi4-usb-c-data-disable", "include native-current.txt"}
+    require(len(settings) == len(expected) and set(settings) == expected and
+            settings[-1] == "include native-current.txt", "Unexpected native firmware configuration")
+    release = str(PurePosixPath(fields["kernel"]).parent)
+    manifest = fat_file(filesystem, "/" + release + "/SHA256SUMS")
+    require(PurePosixPath(release).name == hashlib.sha256(manifest).hexdigest()[:24],
+            "Native boot-set content-address mismatch")
+    payloads = {}
+    for line in manifest.decode().splitlines():
+        match = re.fullmatch(r"([0-9a-f]{64})  ([A-Za-z0-9_.-]+)", line)
+        require(match is not None and match[2] not in payloads, "Invalid native checksum manifest")
+        payloads[match[2]] = match[1]
+        require(boot_hashes.get(release + "/" + match[2]) == match[1], "Native payload checksum mismatch")
+    require(set(payloads) == {"kernel8.img", "bcm2711-rpi-4-b.dtb", "initramfs-linux.img",
+                              "kernel-version", "cmdline.txt"}, "Native manifest is incomplete")
+    version = fat_file(filesystem, "/" + release + "/kernel-version").decode().strip()
+    require(re.fullmatch(r"[0-9A-Za-z._+-]+", version) is not None and version not in (".", ".."),
+            "Unsafe native kernel version")
+    backend = native_backend()
+    kernel = fat_file(filesystem, "/" + fields["kernel"])
+    require(kernel.startswith(b"\x1f\x8b"), "Native kernel is not a compressed ARM64 Image")
+    raw = backend["raw_image"](kernel)
+    backend["validate_dtb"](fat_file(filesystem, "/" + fields["device_tree"]))
+    require(len(fat_file(filesystem, "/" + fields["initramfs"])) > 1024, "Native initramfs is implausibly small")
+    cmdline = fat_file(filesystem, "/" + fields["cmdline"]).decode()
+    require(len(cmdline.splitlines()) == 1, "Native command line must be one line")
+    options = cmdline.split()
+    require([word for word in options if word.startswith("root=")] ==
+            [f"root=PARTUUID={metadata['root_partuuid']}"], "Native root PARTUUID mismatch")
+    require({"rw", "rootwait", "rootfstype=ext4", "cma=256M@0-1G", "module_blacklist=simpledrm"}
+            <= set(options), "Native storage, low CMA or display policy is missing")
+    require(not any(word.startswith(("init=", "rdinit=", "systemd.debug_shell")) for word in options),
+            "Debug access in native command line")
+    return {"boot_mode": "native", "kernel_version": version,
+            "kernel_sha256": hashlib.sha256(raw).hexdigest(),
+            "dtb_sha256": payloads["bcm2711-rpi-4-b.dtb"]}
+
+
 def verify_boot(filesystem, metadata):
     boot_hashes = metadata["boot_files_sha256"]
     require(isinstance(boot_hashes, dict) and len(boot_hashes) > 5, "Boot-file manifest missing")
@@ -273,6 +353,8 @@ def verify_boot(filesystem, metadata):
                 f"Boot-file checksum mismatch: {path}")
     for path, expected in metadata["firmware"]["files_sha256"].items():
         require(boot_hashes.get(path) == expected, f"Pinned firmware changed: {path}")
+    if metadata.get("boot_mode", "uefi") == "native":
+        return verify_native_boot(filesystem, metadata, boot_hashes)
     for name in ("config.txt", "RPI_EFI.fd"):
         require(name in boot_hashes and len(fat_file(filesystem, "/" + name)) > 0,
                 f"Missing Pi firmware: {name}")
@@ -352,9 +434,13 @@ def verify_root(filesystem, metadata, boot_info):
                 lines[0][4:] == ["0", check], f"Wrong fstab {target} filesystem/UUID/check order")
     image_conf = dict(line.split("=", 1) for line in
                       read_file(filesystem, "/etc/rpi4-image.conf").decode().splitlines() if "=" in line)
-    require(image_conf == {"ROOT_PARTUUID": metadata["root_partuuid"],
-                           "BOOT_FS_UUID": metadata["boot_fs_uuid"], "IMAGE_FLAVOUR": "sd-usb"},
+    expected_config = {"ROOT_PARTUUID": metadata["root_partuuid"],
+                       "BOOT_FS_UUID": metadata["boot_fs_uuid"], "IMAGE_FLAVOUR": "sd-usb"}
+    if "boot_mode" in metadata:
+        expected_config["RPI4_BOOT_MODE"] = metadata["boot_mode"]
+    require(image_conf == expected_config,
             "Installed image configuration mismatch")
+    require(read_file(filesystem, "/etc/hostname") == b"rpi4\n", "Prototype hostname leaked into image")
     passwd = {line.split(":")[0]: line.split(":")
               for line in read_file(filesystem, "/etc/passwd").decode().splitlines()}
     require("rpi" in passwd and passwd["rpi"][2] == "1000" and passwd["rpi"][5] == "/home/rpi",
@@ -406,11 +492,26 @@ def verify_root(filesystem, metadata, boot_info):
     require(hashlib.sha256(read_file(filesystem, "/usr/share/rpi4/package-manifest.txt")).hexdigest()
             == metadata["package_manifest_sha256"], "Installed package manifest mismatch")
     kver = boot_info["kernel_version"]
-    for path, key in ((f"/usr/lib/modules/{kver}/vmlinuz", "kernel_sha256"),
-                      (f"/usr/lib/modules/{kver}/dtb/broadcom/bcm2711-rpi-4-b.dtb", "dtb_sha256"),
-                      ("/usr/lib/systemd/boot/efi/systemd-bootaa64.efi", "bootloader_sha256")):
-        require(hashlib.sha256(read_file(filesystem, path)).hexdigest() == boot_info[key],
+    package_paths = [(f"/usr/lib/modules/{kver}/vmlinuz", "kernel_sha256"),
+                     (f"/usr/lib/modules/{kver}/dtb/broadcom/bcm2711-rpi-4-b.dtb", "dtb_sha256")]
+    if metadata.get("boot_mode", "uefi") == "uefi":
+        package_paths.append(("/usr/lib/systemd/boot/efi/systemd-bootaa64.efi", "bootloader_sha256"))
+    for path, key in package_paths:
+        data = read_file(filesystem, path)
+        if key == "kernel_sha256" and metadata.get("boot_mode", "uefi") == "native":
+            data = native_backend()["raw_image"](data)
+        require(hashlib.sha256(data).hexdigest() == boot_info[key],
                 f"ESP payload differs from installed package: {path}")
+    if metadata.get("boot_mode", "uefi") == "native":
+        require(read_file(filesystem, "/usr/share/rpi4/initramfs-boot-mode") == b"native\n",
+                "Native initramfs profile marker missing")
+        require(read_file(filesystem, "/etc/modules-load.d/rpi4-display.conf").splitlines()[-2:] == [b"vc4", b"v3d"],
+                "Native display modules are not selected")
+        runtime = json.loads(read_file(filesystem, "/usr/share/rpi4/runtime-firmware.json"))
+        expected_runtime = metadata["firmware"]["runtime_firmware"]
+        require(runtime["version"] == expected_runtime["version"] and runtime["commit"] == expected_runtime["commit"] and
+                runtime["sha256"] == {name: item["sha256"] for name, item in expected_runtime["files"].items()},
+                "Installed runtime firmware pin differs from build provenance")
     require(read_file(filesystem, "/usr/share/rpi4/initramfs-kernel").decode().strip() == kver,
             "Initramfs build marker does not match selected kernel")
 
@@ -462,11 +563,12 @@ def verify_checksums(image, metadata, allow_uncompressed):
             "sha256": sums[image.name]}
 
 
-def verify_retained_inputs(metadata):
+def verify_retained_inputs(metadata, artifacts=None):
+    artifacts = ARTIFACTS if artifacts is None else artifacts
     counts = {}
     for name, directory in (("package-cache-SHA256SUMS", PROJECT / "cache/packages"),
                              ("repository-db-SHA256SUMS", PROJECT / "cache/ports-databases")):
-        lines = regular_file(ARTIFACTS / name).read_text().splitlines()
+        lines = regular_file(artifacts / name).read_text().splitlines()
         require(lines, f"Empty retained-input checksum manifest: {name}")
         seen = set()
         for line in lines:
@@ -478,7 +580,7 @@ def verify_retained_inputs(metadata):
         counts[directory.name] = len(seen)
     firmware_text = "".join(f"{value}  {name}\n" for name, value in
                              metadata["firmware"]["files_sha256"].items())
-    require(regular_file(ARTIFACTS / "firmware-SHA256SUMS").read_text() == firmware_text,
+    require(regular_file(artifacts / "firmware-SHA256SUMS").read_text() == firmware_text,
             "Firmware checksum manifest differs from metadata")
     return counts
 
@@ -504,12 +606,13 @@ def verify_image(image, allow_uncompressed=False):
     try:
         require(metadata["experimental"] is True and metadata["physical_board_boot_verified"] is False,
                 "Image metadata incorrectly claims hardware validation")
+        require(metadata.get("boot_mode", "uefi") in ("uefi", "native"), "Unsupported image boot mode")
         require(image.stat().st_size == metadata["image_bytes"], "Image size mismatch")
         checksums = check("artifact_checksums_and_compressed_stream",
                           lambda: verify_checksums(image, metadata, allow_uncompressed))
         report.update(checksums)
         report["retained_input_files"] = check("retained_package_and_repository_input_checksums",
-                                               lambda: verify_retained_inputs(metadata))
+                                               lambda: verify_retained_inputs(metadata, image.parent))
         with image.open("rb") as stream:
             parts = check("protective_mbr_primary_and_backup_gpt_crcs_layout",
                           lambda: verify_gpt(stream, image.stat().st_size, metadata))
@@ -517,7 +620,7 @@ def verify_image(image, allow_uncompressed=False):
             check("fat32_read_only_fsck", lambda: extract_partition(stream, parts[0], boot, "fat32"))
             check("ext4_read_only_fsck", lambda: extract_partition(stream, parts[1], root, "ext4"))
         report["fat32"] = check("fat32_volume_identity", lambda: verify_fat_header(boot, metadata))
-        boot_info = check("firmware_boot_hashes_aarch64_pe_loader_paths_and_root",
+        boot_info = check("firmware_boot_hashes_kernel_format_paths_and_root",
                           lambda: verify_boot(boot, metadata))
         check("root_uuid_fstab_users_permissions_identities_services_and_manifest",
               lambda: verify_root(root, metadata, boot_info))
@@ -531,16 +634,26 @@ def verify_image(image, allow_uncompressed=False):
 
 
 def main():
+    global VERIFY
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("image", nargs="?", type=Path)
+    parser.add_argument("--boot-mode", choices=("uefi", "native"),
+                        default=os.environ.get("RPI4_BOOT_MODE") or "native",
+                        help="Boot profile (default: native; UEFI is deprecated)")
     parser.add_argument("--allow-uncompressed", action="store_true",
                         help="Accept development output built using --skip-compression")
     args = parser.parse_args()
+    if args.boot_mode not in ("native", "uefi"):
+        parser.error("RPI4_BOOT_MODE must be native or uefi")
+    VERIFY = PROJECT / ("build/native/image-verification" if args.boot_mode == "native"
+                        else "build/image-verification")
     for tool in ("debugfs", "e2fsck", "fsck.fat", "mtype", "zstd"):
         require(shutil.which(tool), f"Missing host verification tool: {tool}")
     require(not VERIFY.is_symlink() and VERIFY.resolve().is_relative_to(PROJECT.resolve()),
             "Verification directory escapes project")
     VERIFY.mkdir(parents=True, exist_ok=True)
-    image = ARTIFACTS / IMAGE_NAME
+    image = args.image or (ARTIFACTS / "native/rpi4-archlinux-ports-native-sd-usb.img"
+                           if args.boot_mode == "native" else ARTIFACTS / UEFI_IMAGE_NAME)
     report = verify_image(image, args.allow_uncompressed)
     output_path(VERIFY / "report.json").write_text(json.dumps([report], indent=2) + "\n")
     print(json.dumps(report, indent=2))

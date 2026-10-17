@@ -1,0 +1,3 @@
+#!/bin/sh
+# Leave the package binary unchanged and protect CPU frequency probes.
+exec /usr/local/sbin/rpi4-powertop "$@"

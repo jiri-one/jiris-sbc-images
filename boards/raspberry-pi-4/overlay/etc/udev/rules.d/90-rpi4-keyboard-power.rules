@@ -1,0 +1,3 @@
+# This keyboard has shown unreliable resume after autosuspend.
+# Keep it responsive while leaving other USB devices at their driver defaults.
+ACTION=="add|change", SUBSYSTEM=="usb", ATTR{idVendor}=="0510", ATTR{idProduct}=="0032", TEST=="power/control", ATTR{power/control}="on"

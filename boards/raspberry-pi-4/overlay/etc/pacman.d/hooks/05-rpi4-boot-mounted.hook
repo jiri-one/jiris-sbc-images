@@ -29,9 +29,12 @@ Target = linux-dtbs
 Target = mkinitcpio
 Target = mkinitcpio-git
 Target = systemd
+Target = kbd
+Target = fbset
+Target = terminus-font
 
 [Action]
-Description = Checking the Raspberry Pi 4 EFI boot filesystem...
+Description = Checking the Raspberry Pi 4 boot filesystem...
 When = PreTransaction
 Exec = /usr/local/sbin/rpi4-check-boot
 AbortOnFail

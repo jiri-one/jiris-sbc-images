@@ -1,0 +1,100 @@
+#!/bin/sh
+# Choose the largest bundled font leaving 80x30 cells when resolution permits.
+# Runs after systemd's normal keymap/UTF-8 setup in initramfs and the real root.
+
+automatic_font() {
+    # Leave explicit font settings to systemd. Keyboard-only overrides should
+    # keep adaptive sizing. FONT must remain unset for the automatic preset:
+    # systemd then skips its legacy font probe, even after a tall font was loaded.
+    FONT='' FONT_MAP='' FONT_UNIMAP='' FONT_SCALE=''
+    if [ -r /etc/vconsole.conf ]; then
+        # Root-owned shell-style assignments, as used by mkinitcpio.
+        # shellcheck source=/dev/null
+        . /etc/vconsole.conf
+    fi
+    [ -z "$FONT$FONT_MAP$FONT_UNIMAP$FONT_SCALE" ] || return 1
+    cmdline=''
+    if [ -r /proc/cmdline ]; then
+        IFS= read -r cmdline < /proc/cmdline || :
+    fi
+    # Also covers rd.vconsole.*, quoted values and systemd's older dotted names.
+    case $cmdline in
+        *vconsole.font=*|*vconsole.font_map=*|*vconsole.font_unimap=*|\
+        *vconsole.font_scale=*|*vconsole.font.map=*|*vconsole.font.unimap=*) return 1 ;;
+    esac
+    if [ -n "${CREDENTIALS_DIRECTORY:-}" ]; then
+        for setting in font font_map font_unimap font_scale; do
+            [ ! -e "$CREDENTIALS_DIRECTORY/vconsole.$setting" ] || return 1
+        done
+    fi
+}
+
+framebuffer_size() {
+    width='' height=''
+    # Read visible geometry; virtual_size can include off-screen storage.
+    # -s neither selects a mode nor substitutes the monitor's EDID defaults.
+    geometry=$(LC_ALL=C fbset -fb /dev/fb0 -s 2>/dev/null) || return 1
+    while read -r field x y _; do
+        if [ "$field" = geometry ]; then
+            width=$x height=$y
+            break
+        fi
+    done <<EOF
+$geometry
+EOF
+    case $width:$height in *[!0-9:]*|:*|*:) return 1 ;; esac
+    [ "$width" -gt 0 ] && [ "$height" -gt 0 ] &&
+        [ "$width" -le 32768 ] && [ "$height" -le 32768 ]
+}
+
+apply_font() {
+    console=$1
+    # kbd supports the tall-font API for doubled fonts. If the framebuffer
+    # rejects a size, fall back to a smaller one without a boot warning.
+    if [ "$width" -ge 2560 ] && [ "$height" -ge 1920 ]; then
+        setfont -C "$console" -d latarcyrheb-sun32 2>/dev/null && return 0
+    fi
+    if [ "$width" -ge 1760 ] && [ "$height" -ge 1320 ]; then
+        setfont -C "$console" -d ter-v22b 2>/dev/null && return 0
+    fi
+    if [ "$width" -ge 1280 ] && [ "$height" -ge 960 ]; then
+        setfont -C "$console" latarcyrheb-sun32 2>/dev/null && return 0
+    fi
+    if [ "$width" -ge 880 ] && [ "$height" -ge 660 ]; then
+        setfont -C "$console" ter-v22b 2>/dev/null && return 0
+    fi
+    setfont -C "$console" latarcyrheb-sun16 2>/dev/null
+}
+
+main() {
+    automatic_font || return 0
+    # A framebuffer takeover can briefly expose a dummy console. Wait at most
+    # two seconds; headless boots must still complete successfully.
+    attempt=0
+    stable_size=''
+    while [ "$attempt" -lt 20 ]; do
+        applied=0
+        if framebuffer_size; then
+            for console in /dev/tty[1-6]; do
+                [ -c "$console" ] || continue
+                # --check supports tall fonts and excludes graphics consoles,
+                # where a plain setfont can silently succeed without applying.
+                if setfont -C "$console" --check 2>/dev/null && apply_font "$console"; then
+                    applied=1
+                fi
+            done
+        fi
+        if [ "$applied" -ne 0 ]; then
+            # Repeat after a short delay: takeover can happen between consoles.
+            [ "$stable_size" != "$width:$height" ] || return 0
+            stable_size=$width:$height
+        else
+            stable_size=''
+        fi
+        attempt=$((attempt + 1))
+        [ "$attempt" -eq 20 ] || sleep 0.1
+    done
+    return 0
+}
+
+main "$@"

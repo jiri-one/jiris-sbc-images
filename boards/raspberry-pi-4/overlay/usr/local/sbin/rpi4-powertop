@@ -1,0 +1,16 @@
+#!/bin/sh
+set -eu
+
+if [ "$(/usr/bin/id -u)" != 0 ]; then
+    printf '%s\n' 'Run rpi4-powertop as root.' >&2
+    exit 1
+fi
+
+# PowerTOP probes CPU frequency limits even when generating a report. Make
+# those paths read-only before it starts, without changing the host mounts.
+# Other PowerTOP writes, including --auto-tune, are not prevented by this guard.
+exec /usr/bin/unshare --mount --propagation private -- /bin/sh -ec '
+    /usr/bin/mount --bind /sys/devices/system/cpu /sys/devices/system/cpu
+    /usr/bin/mount -o remount,bind,ro /sys/devices/system/cpu
+    exec /usr/bin/powertop "$@"
+' rpi4-powertop "$@"

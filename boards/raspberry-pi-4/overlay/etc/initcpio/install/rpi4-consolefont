@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+build() {
+    local font
+    # sd-vconsole still supplies the normal setup service, keymap and any
+    # explicitly configured font. base supplies /bin/sh and sleep.
+    add_binary setfont || return 1
+    add_binary fbset || return 1
+    add_file /usr/local/sbin/rpi4-vconsole-font /usr/local/sbin/rpi4-vconsole-font 755 || return 1
+    add_file /etc/systemd/system/systemd-vconsole-setup.service.d/20-rpi4-font.conf || return 1
+
+    # Fonts come from kbd and terminus-font. Decompress the complete PSF,
+    # including its Unicode table, so no runtime decompressor is needed.
+    # Propagate either pipeline failure, including a missing package font.
+    for font in latarcyrheb-sun16.psfu ter-v22b.psf latarcyrheb-sun32.psfu; do
+        (
+            set -o pipefail
+            gzip -cd "/usr/share/kbd/consolefonts/$font.gz" |
+                add_file - "/usr/share/kbd/consolefonts/$font" 644
+        ) || return 1
+    done
+}
+
+help() {
+    cat <<'EOF'
+Add adaptive framebuffer fonts after sd-vconsole's normal systemd setup.
+Requires the base, systemd and sd-vconsole hooks, plus fbset, kbd and terminus-font.
+Keep FONT unset to select a readable font from the visible display dimensions.
+Explicit font settings retain the standard sd-vconsole behavior.
+EOF
+}

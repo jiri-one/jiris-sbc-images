@@ -39,8 +39,9 @@ Physical SD boot, normal reboot, full RAM, four-core load, Ethernet, SSH and the
 4K console have been checked. Memory and SD/network transfers passed with
 4.5 GiB allocated. Physical USB-root boot, an upgrade to a different kernel
 version, unattended recovery, Wi-Fi, Bluetooth, GPIO/HATs and graphics
-acceleration remain unverified. Keyboard/HDMI unplug-and-reconnect testing is
-still pending. The final generic image passed offline and generic QEMU checks;
+acceleration remain unverified. Repeated keyboard reconnection across USB 2
+and USB 3 ports, plus HDMI unplug/replug, passed on this setup without a reboot.
+The final generic image passed offline and generic QEMU checks;
 the physical tests used the maintained installation with the same runtime
 configuration, rather than flashing that final generic image.
 
@@ -245,8 +246,11 @@ No automatic tuning service or blanket `--auto-tune` is enabled. Suggested
 changes need individual checks because they can affect disk writeback,
 networking, USB resume or performance. The SEJIN keyboard `0510:0032` is kept
 awake by a device-specific udev rule following unreliable resume on the M1S.
-Other USB devices retain driver defaults. Physical keyboard and HDMI reconnection
-still need verification on the Pi.
+Other USB devices retain driver defaults. Repeated keyboard disconnects with
+pauses and moves between USB 2 and USB 3 ports worked; the rule kept this keyboard
+awake after reconnection. Unplugging HDMI, waiting and reconnecting restored the
+4K console at 120 columns and 33 rows without a reboot. These results apply to
+the tested keyboard and display.
 
 Some CPU-idle statistics are unavailable on this Pi. PowerTOP helps identify
 activity; the wall wattmeter remains the reference for whole-device consumption.

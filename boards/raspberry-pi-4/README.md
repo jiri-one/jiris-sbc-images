@@ -225,8 +225,11 @@ The cursor remains visible but does not blink. To restore blinking, remove
 
 The native setup keeps all four cores available and uses `schedutil` with the
 full 600–1800 MHz range on the tested board. It starts with Wi-Fi and Bluetooth
-soft-blocked and uses wired Ethernet. Wireless operation and its firmware
-requirements have not been validated here.
+soft-blocked and uses wired Ethernet. The image includes `wireless-regdb` but no
+Wi-Fi supplicant. When enabling Wi-Fi, set the country where the Pi operates,
+for example `WIRELESS_REGDOM="CZ"` in `/etc/conf.d/wireless-regdom` or
+`country=CZ` in the supplicant's configuration. Wireless operation and its
+firmware requirements have not been validated here.
 
 PowerTOP is included for diagnostics:
 

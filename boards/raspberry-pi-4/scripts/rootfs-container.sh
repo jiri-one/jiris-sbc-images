@@ -58,7 +58,7 @@ pacman-key --lsign-key C43E3B9B9CE3F35E97AEF93873556FFF735F691D
 # QEMU user emulation does not implement the host's Landlock interface.
 # This switch affects only this build invocation, never the shipped config.
 packages=(base linux linux-dtbs linux-firmware-broadcom mkinitcpio openssh sudo nano powertop
-          python zstd cloud-guest-utils dosfstools fbset terminus-font)
+          python zstd cloud-guest-utils dosfstools fbset terminus-font wireless-regdb)
 if [[ $RPI4_REUSE_PACKAGES == 1 ]]; then
     pacman -Q "${packages[@]}"
 else

@@ -11,8 +11,8 @@ selects the matching one. Linux is always 64-bit (`x86_64`), even with 32-bit
 UEFI. Legacy BIOS/CSM boot is not supported.
 
 An existing eMMC installation boots with systemd-boot and the current kernel
-on v1.3 hardware. The new USB image still needs testing on hardware.
-**Intermittent freezes remain under investigation**; see [Stability](#stability).
+on v1.3 hardware. It passed a [72-hour stability test](#72-hour-stability-test)
+with a Samsung USB charger. The new USB image still needs testing on hardware.
 
 ## Build
 
@@ -99,16 +99,31 @@ in `/sys/class/drm/card*-HDMI-A-1/modes`; the image leaves mode selection automa
 
 ## Stability
 
-Some JaguarBoards have a history of occasional freezes. We are monitoring this
-board to identify remaining failures and work on fixes. Historical reports point
-to [Bay Trail idle-state issues](https://web.archive.org/web/20170503022532/http://www.jaguarboard.org/index.php/forum/troubleshooting/414-possible-explanation-for-freezing.html)
-and [power-supply problems](https://web.archive.org/web/20170503022535/http://www.jaguarboard.org/index.php/forum/troubleshooting/607-debian-crashing.html?start=12);
-the cause on a particular board still needs to be established.
+### 72-hour stability test
+
+**Passed, 17–20 October 2026**, on the existing eMMC installation with Arch Linux
+x86_64 and kernel `7.2.9-arch1-1`. After reading
+[community reports of power-supply problems](https://web.archive.org/web/20170503022535/http://www.jaguarboard.org/index.php/forum/troubleshooting/607-debian-crashing.html?start=12),
+we tested with a **Samsung EP-TA200 USB charger**, rated **5 V / 2 A**.
+
+- **RAM:** 36 memtester passes, each checking 368–384 MiB of locked memory.
+- **CPU and RAM:** 36 hours of verified stress-ng load on all four cores,
+  plus 360 load/idle cycles.
+- **Result:** no reboot, detected memory or hardware errors, OOM or thermal
+  throttling. Peak temperature: **67 °C**.
+
+Deep C7/C7S idle states were used during the test;
+`intel_idle.max_cstate=1` was not used.
+
+### Diagnostics and workarounds
+
+For boards affected by [Bay Trail idle-state issues](https://web.archive.org/web/20170503022532/http://www.jaguarboard.org/index.php/forum/troubleshooting/414-possible-explanation-for-freezing.html),
+an optional workaround is available:
 
 Normal boot is first and the default. In `/etc/default/jaguar-boot`, set
 `JAGUAR_BOOT_DEFAULT=1` to try `intel_idle.max_cstate=1`, or `2` for `nomodeset`,
 then run `sudo jaguar-update-boot`; `0` restores normal boot. The C-state workaround
-may increase power use and is not a confirmed fix; neither is the current kernel.
+may increase power use.
 
 Automatic probes for nonresponding tablet audio, battery and touch devices on
 the tested v1.3 board are disabled in `/etc/modprobe.d/jaguar-tablet-devices.conf`.

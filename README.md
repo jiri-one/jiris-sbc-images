@@ -17,7 +17,7 @@ own risk.
 
 | Board | Boot | Status |
 | --- | --- | --- |
-| [Raspberry Pi 4](boards/raspberry-pi-4/README.md) | Native Raspberry Pi boot, default | [48-hour CPU/RAM test passed; Wi-Fi probes had no loss](boards/raspberry-pi-4/README.md#48-hour-stability-test) on the maintained installation with manually configured Wi-Fi. SD boot, CPU scaling, Ethernet, SSH, 4K HDMI and keyboard/display reconnection checked. USB-root boot and kernel upgrades untested. [UEFI is deprecated](boards/raspberry-pi-4/docs/UEFI-LEGACY.md), with no planned maintenance. |
+| [Raspberry Pi 4](boards/raspberry-pi-4/README.md) | Native Raspberry Pi boot, default | [48-hour CPU/RAM test passed; Wi-Fi probes had no loss](boards/raspberry-pi-4/README.md#48-hour-stability-test) on the maintained installation with manually configured Wi-Fi. SD boot, CPU scaling, Ethernet, SSH, 4K HDMI, keyboard/display reconnection, a kernel upgrade and the [kernel fallback](boards/raspberry-pi-4/README.md#kernel-fallback) checked. USB-root boot untested. [UEFI is deprecated](boards/raspberry-pi-4/docs/UEFI-LEGACY.md), with no planned maintenance. |
 | [ODROID-M1S](boards/odroid-m1s/README.md) | SD/eMMC, U-Boot + extlinux | Offline and generic QEMU checks passed. Earlier SD/eMMC builds booted on hardware; this rebuild still needs hardware testing. |
 | [JaguarBoard](boards/jaguarboard/README.md) | USB → eMMC, systemd-boot with 32/64-bit EFI | [72-hour stability test passed](boards/jaguarboard/README.md#72-hour-stability-test) on v1.3 hardware running from eMMC with a Samsung USB charger. New USB image awaits hardware testing. |
 

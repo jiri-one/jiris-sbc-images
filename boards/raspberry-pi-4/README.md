@@ -39,9 +39,9 @@ Physical SD boot, normal reboot, full RAM, four-core load, Ethernet, SSH and the
 4K console have been checked. Memory and SD/network transfers passed with
 4.5 GiB allocated; a later [48-hour test](#48-hour-stability-test) covered
 6 GiB memory passes and Wi-Fi with additional firmware and configuration.
-Physical USB-root boot, an upgrade to a different kernel
-version, unattended recovery, Bluetooth, GPIO/HATs and graphics
-acceleration remain unverified. Repeated keyboard reconnection across USB 2
+A kernel upgrade from 7.2.9 to 7.2.11 and the [kernel fallback](#kernel-fallback)
+were checked afterwards. Physical USB-root boot, unattended recovery, Bluetooth,
+GPIO/HATs and graphics acceleration remain unverified. Repeated keyboard reconnection across USB 2
 and USB 3 ports, plus HDMI unplug/replug, passed on this setup without a reboot.
 The final generic image passed offline and generic QEMU checks;
 the physical tests used the maintained installation, rather than flashing that
@@ -275,6 +275,11 @@ If a new kernel does not boot:
 2. In `config.txt` on that partition, replace `include native-current.txt`
    with `include native-fallback.txt`.
 3. Boot the Pi. It starts the previous kernel with its modules.
+
+This was checked on the maintained installation on 21 October 2026. It used
+the migration steps below, then a full upgrade from 7.2.9 to 7.2.11. Selecting
+the fallback booted 7.2.9 with its kept modules and working Wi-Fi; restoring the
+line booted 7.2.11 again. A kernel that actually fails to boot was not tested.
 
 While the fallback is selected, package updates still refresh
 `native-current.txt` but leave the fallback unchanged. To try the current kernel

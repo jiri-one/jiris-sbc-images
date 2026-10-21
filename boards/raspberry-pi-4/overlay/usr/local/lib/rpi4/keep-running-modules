@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Pacman removes the running kernel's modules when its package changes, but
+# native boot keeps that kernel as the fallback. update-native-boot.py removes
+# the kept tree once no boot set needs it.
+set -euo pipefail
+[[ $# -eq 1 && ($1 == save || $1 == restore) ]] || { echo 'Usage: keep-running-modules save|restore' >&2; exit 2; }
+RPI4_BOOT_MODE=uefi
+if [[ -f /etc/rpi4-image.conf ]]; then
+    # shellcheck source=/dev/null
+    source /etc/rpi4-image.conf
+fi
+[[ $RPI4_BOOT_MODE == native ]] || exit 0
+modules=/usr/lib/modules
+saved=$modules/.rpi4-running-saved
+# Pacman run against this root from elsewhere has no running kernel to keep.
+[[ -r /proc/sys/kernel/osrelease ]] || exit 0
+running=$(< /proc/sys/kernel/osrelease)
+[[ $running =~ ^[0-9A-Za-z._+-]+$ && $running != . && $running != .. ]] || exit 0
+if [[ $1 == save ]]; then
+    [[ -d $modules/$running && ! -L $modules/$running ]] || exit 0
+    # A copy left by an interrupted transaction may hold files that are now
+    # missing, so add to it instead of replacing it.
+    mkdir -p -- "$saved"
+    cp -a -l --update=none -- "$modules/$running" "$saved/"
+    # The marker means a finished restore, so a copied one must not come back.
+    rm -f -- "$saved/$running/.rpi4-kept"
+    exit 0
+fi
+if [[ -d $saved/$running ]]; then
+    rm -f -- "$modules/$running/.rpi4-kept"
+    # linux-dtbs shares the directory, so only the kernel image shows whether
+    # the running kernel's package is still installed.
+    if ! pacman -Qqo -- "$modules/$running/vmlinuz" > /dev/null 2>&1; then
+        # Files left behind by other tools stay; only missing ones come back.
+        mkdir -p -- "$modules/$running"
+        cp -a -l --update=none -- "$saved/$running/." "$modules/$running/"
+        touch -- "$modules/$running/.rpi4-kept"
+    fi
+fi
+rm -rf -- "$saved"

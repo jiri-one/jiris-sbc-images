@@ -4,6 +4,9 @@
 Arch Linux Ports may package an EFI zboot executable. Extract its ARM64 Image
 before giving it to the Raspberry Pi firmware; keep the packaged executable
 at /boot/vmlinuz-linux for mkinitcpio's normal preset.
+
+The firmware cannot fall back on its own, so the newest boot set known to
+start stays selectable through native-fallback.txt, together with its modules.
 """
 
 from pathlib import Path
@@ -28,8 +31,14 @@ CONFIG = Path('/etc/rpi4-image.conf')
 MODULES = Path('/usr/lib/modules')
 SHARE = Path('/usr/share/rpi4')
 LOCK = Path('/run/lock/rpi4-update-boot.lock')
-FILES = ('kernel8.img', 'bcm2711-rpi-4-b.dtb', 'initramfs-linux.img',
-         'kernel-version', 'cmdline.txt')
+CMDLINE = Path('/proc/cmdline')
+OSRELEASE = Path('/proc/sys/kernel/osrelease')
+PAYLOAD = ('kernel8.img', 'bcm2711-rpi-4-b.dtb', 'initramfs-linux.img', 'kernel-version')
+FILES = PAYLOAD + ('cmdline.txt',)
+CURRENT, FALLBACK = 'native-current.txt', 'native-fallback.txt'
+BOOT_SET_OPTION = 'rpi4.boot_set='
+# Written by keep-running-modules into module trees that no package owns.
+KEPT_MODULES = '.rpi4-kept'
 MAX_IMAGE_BYTES = 512 * 1024 * 1024
 
 
@@ -147,6 +156,106 @@ def validate_dtb(data):
         raise ValueError('Expected a Raspberry Pi 4 spin-table device tree')
 
 
+def valid_version(version):
+    return version not in ('.', '..') and re.fullmatch(r'[0-9A-Za-z._+-]+', version) is not None
+
+
+def boot_set_id(payload_sums, base_cmdline):
+    """Name a boot set without its command line, which carries the name."""
+    return hashlib.sha256(f'{payload_sums}cmdline {base_cmdline}\n'.encode()).hexdigest()[:24]
+
+
+def read_text(path):
+    try:
+        return path.read_text()
+    except OSError:
+        return ''
+
+
+def selected_set(selector):
+    match = re.search(r'^kernel=native/([a-f0-9]{24})/kernel8.img$', read_text(selector), re.M)
+    return match[1] if match else None
+
+
+def booted_set():
+    names = [word[len(BOOT_SET_OPTION):] for word in read_text(CMDLINE).split()
+             if word.startswith(BOOT_SET_OPTION)]
+    return names[0] if len(names) == 1 and re.fullmatch(r'[a-f0-9]{24}', names[0]) else None
+
+
+def set_version(directory):
+    try:
+        if directory.is_symlink() or not directory.is_dir():
+            return None
+        sums = {}
+        for line in (directory / 'SHA256SUMS').read_text().splitlines():
+            match = re.fullmatch(r'([a-f0-9]{64})  ([A-Za-z0-9_.-]+)', line)
+            if not match or match[2] in sums:
+                return None
+            sums[match[2]] = match[1]
+        if set(sums) != set(FILES) or any(digest(directory / name) != value
+                                          for name, value in sums.items()):
+            return None
+        version = (directory / 'kernel-version').read_text().strip()
+    except OSError:
+        return None
+    return version if valid_version(version) else None
+
+
+def modules_present(version):
+    # A kept tree is complete only once its restore has finished and left the
+    # marker; otherwise the kernel's package must still be installed.
+    tree = MODULES / version
+    if tree.is_symlink() or not (tree / 'modules.order').is_file():
+        return False
+    if (tree / KEPT_MODULES).is_file():
+        return True
+    owner = subprocess.run(['pacman', '-Qqo', '--', str(tree / 'vmlinuz')],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    return owner.returncode == 0
+
+
+def choose_fallback(native, release, version):
+    """The running set becomes the fallback whenever the selection moves away
+    from it: it is the newest set known to boot. While the running set stays
+    selected, the earlier fallback is kept if it is still complete.
+    """
+    running = read_text(OSRELEASE).strip()
+    booted = booted_set()
+    if (booted and booted != release and set_version(native / booted) == running
+            and modules_present(running)):
+        return booted, running
+    previous = selected_set(BOOT / FALLBACK)
+    if previous and previous != release:
+        previous_version = set_version(native / previous)
+        if previous_version and modules_present(previous_version):
+            return previous, previous_version
+    return release, version
+
+
+def selector_text(heading, release):
+    content = (f'# Managed by rpi4-update-boot. {heading}\n'
+               f'kernel=native/{release}/kernel8.img\n'
+               f'device_tree=native/{release}/bcm2711-rpi-4-b.dtb\n'
+               f'initramfs native/{release}/initramfs-linux.img followkernel\n'
+               f'cmdline=native/{release}/cmdline.txt\n')
+    if any(len(line) > 80 for line in content.splitlines() if not line.startswith('#')):
+        raise ValueError('Firmware configuration exceeds 80 characters')
+    return content.encode()
+
+
+def prune_kept_modules(keep):
+    # No package owns a kept tree, so pacman never removes it.
+    for tree in MODULES.iterdir():
+        if (tree.name in keep or tree.is_symlink() or not tree.is_dir() or tree.is_mount()
+                or not (tree / KEPT_MODULES).is_file()):
+            continue
+        owner = subprocess.run(['pacman', '-Qqo', '--', str(tree)],
+                               stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if owner.returncode != 0:
+            shutil.rmtree(tree)
+
+
 def sync(path):
     command(['sync', '-f', str(path)])
 
@@ -199,15 +308,16 @@ def validate_boot_inputs():
             raise ValueError(f'Pinned runtime firmware mismatch: {name}')
     lines = [line.split('#', 1)[0].strip() for line in (BOOT / 'config.txt').read_text().splitlines()]
     required = ('arm_64bit=1', 'enable_gic=1', 'kernel_address=0x200000',
-                'start_file=start4.elf', 'fixup_file=fixup4.dat',
-                'include native-current.txt')
-    if any(lines.count(line) != 1 for line in required):
+                'start_file=start4.elf', 'fixup_file=fixup4.dat')
+    includes = [line for line in lines if line in (f'include {CURRENT}', f'include {FALLBACK}')]
+    if any(lines.count(line) != 1 for line in required) or len(includes) != 1:
         raise ValueError('config.txt does not select the expected native boot configuration')
     if any(re.match(r'(kernel|device_tree|cmdline)\s*=|initramfs\s', line) for line in lines):
-        raise ValueError('Native boot paths must come from native-current.txt')
+        raise ValueError('Native boot paths must come from native-current.txt or native-fallback.txt')
     overlay = BOOT / 'overlays/rpi4-usb-c-data-disable.dtbo'
     if not overlay.is_file() or not overlay.stat().st_size:
         raise ValueError('Missing USB-C data-controller overlay')
+    return includes[0].split()[1]
 
 
 def update():
@@ -220,7 +330,7 @@ def update():
         raise ValueError('Expected exactly one package-owned linux kernel')
     kernel = kernels[0]
     version = kernel.parent.name
-    if version in ('.', '..') or not re.fullmatch(r'[0-9A-Za-z._+-]+', version):
+    if not valid_version(version):
         raise ValueError('Invalid kernel version')
     dtb = kernel.parent / 'dtb/broadcom/bcm2711-rpi-4-b.dtb'
     if output(['pacman', '-Qqo', '--', str(dtb)]) != 'linux-dtbs':
@@ -232,7 +342,7 @@ def update():
     image = raw_image(packaged_kernel)
     dtb_data = dtb.read_bytes()
     validate_dtb(dtb_data)
-    validate_boot_inputs()
+    included = validate_boot_inputs()
     build = os.environ.get('RPI4_IMAGE_BUILD', '0') == '1'
     if build and (not (BOOT / 'initramfs-linux.img').is_file()
                   or not (BOOT / 'initramfs-linux.img').stat().st_size
@@ -265,11 +375,13 @@ def update():
         # modalias from creating an additional simpledrm device after switch-root.
         cmdline = (f"root=PARTUUID={config['ROOT_PARTUUID']} rw rootwait rootfstype=ext4 "
                    'console=tty1 systemd.show_status=yes cma=256M@0-1G '
-                   'rfkill.default_state=0 module_blacklist=simpledrm\n')
-        (staging / 'cmdline.txt').write_text(cmdline)
+                   'rfkill.default_state=0 module_blacklist=simpledrm')
+        payload_sums = ''.join(f'{digest(staging / name)}  {name}\n' for name in PAYLOAD)
+        release = boot_set_id(payload_sums, cmdline)
+        # The running system finds its own boot set through this option.
+        (staging / 'cmdline.txt').write_text(f'{cmdline} {BOOT_SET_OPTION}{release}\n')
         checksums = ''.join(f'{digest(staging / name)}  {name}\n' for name in FILES)
         (staging / 'SHA256SUMS').write_text(checksums)
-        release = hashlib.sha256(checksums.encode()).hexdigest()[:24]
         destination = native / release
         for path in staging.iterdir():
             path.chmod(0o644)
@@ -284,35 +396,34 @@ def update():
         else:
             staging.rename(destination)
         sync(native)
-        selector = BOOT / 'native-current.txt'
-        previous = ''
-        if selector.exists():
-            match = re.search(r'^kernel=native/([a-f0-9]{24})/kernel8.img$', selector.read_text(), re.M)
-            if match:
-                previous = match[1]
-        if previous == release:
-            match = re.search(r'^# previous-boot-set ([a-f0-9]{24})$', selector.read_text(), re.M)
-            previous = match[1] if match else ''
-        content = (f'# Managed by rpi4-update-boot. Kernel {version}\n'
-                   f'# previous-boot-set {previous}\n'
-                   '# Previous payloads do not preserve rootfs modules and are not an OS rollback.\n'
-                   f'kernel=native/{release}/kernel8.img\n'
-                   f'device_tree=native/{release}/bcm2711-rpi-4-b.dtb\n'
-                   f'initramfs native/{release}/initramfs-linux.img followkernel\n'
-                   f'cmdline=native/{release}/cmdline.txt\n')
-        if any(len(line) > 80 for line in content.splitlines() if not line.startswith('#')):
-            raise ValueError('Firmware configuration exceeds 80 characters')
+        if included == FALLBACK:
+            # The user chose to boot the fallback; it must keep pointing there.
+            fallback = selected_set(BOOT / FALLBACK)
+            fallback_version = set_version(native / fallback) if fallback else None
+            if not fallback_version or not modules_present(fallback_version):
+                raise ValueError('The fallback boot set selected in config.txt is missing, damaged '
+                                 'or without its kernel modules')
+        else:
+            fallback, fallback_version = choose_fallback(native, release, version)
         atomic_file(BOOT / 'vmlinuz-linux', packaged_kernel)
+        atomic_file(BOOT / FALLBACK, selector_text(f'Fallback kernel {fallback_version}', fallback))
         # Commit last. Every selected payload is complete and synced. Atomic
         # renames reduce partial-write exposure but cannot make FAT power-safe.
-        atomic_file(selector, content.encode())
+        atomic_file(BOOT / CURRENT, selector_text(f'Kernel {version}', release))
         for directory in native.iterdir():
             if (directory.is_dir() and not directory.is_symlink() and not directory.is_mount()
                     and re.fullmatch(r'[a-f0-9]{24}', directory.name)
-                    and directory.name not in (release, previous)):
+                    and directory.name not in (release, fallback)):
                 shutil.rmtree(directory)
         sync(native)
+        prune_kept_modules({version, fallback_version, read_text(OSRELEASE).strip()})
         print(f'Native boot files ready: {version}, boot set {release}')
+        if fallback == release:
+            print('No older boot set is kept as a fallback yet.')
+        else:
+            print(f'Fallback: {fallback_version}, boot set {fallback}')
+        if included == FALLBACK:
+            print(f'config.txt boots the fallback. Restore "include {CURRENT}" to start {version}.')
     finally:
         if staging.exists():
             shutil.rmtree(staging)

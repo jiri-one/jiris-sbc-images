@@ -424,7 +424,7 @@ def build_image():
     metadata["input_manifest_sha256"] = checksum(ARTIFACTS / "input-manifest.json")
     metadata["tools_manifest_sha256"] = checksum(PROJECT / "build/logs/tools-package-manifest.txt")
     metadata["boot_files_sha256"] = tree_hashes(ROOT / "boot")
-    required_files = (("native-current.txt", "config.txt", "start4.elf", "fixup4.dat")
+    required_files = (("native-current.txt", "native-fallback.txt", "config.txt", "start4.elf", "fixup4.dat")
                       if BOOT_MODE == "native" else
                       ("EFI/BOOT/BOOTAA64.EFI", "EFI/systemd/systemd-bootaa64.efi",
                        "loader/loader.conf", "loader/entries/rpi4.conf"))
@@ -433,6 +433,7 @@ def build_image():
             raise RuntimeError(f"Boot helper did not produce {required}")
     if BOOT_MODE == "native":
         metadata["native_selector"] = (ROOT / "boot/native-current.txt").read_text()
+        metadata["native_fallback_selector"] = (ROOT / "boot/native-fallback.txt").read_text()
     else:
         metadata["loader_entry"] = (ROOT / "boot/loader/entries/rpi4.conf").read_text()
     boot = safe_path(BUILD / "sd-usb-boot-tree")

@@ -133,21 +133,29 @@ class NativeVerificationTests(unittest.TestCase):
         dtb = bytearray(40) + b"raspberrypi,4-model-b\0spin-table\0"
         struct.pack_into(">II", dtb, 0, 0xD00DFEED, len(dtb))
         payloads = {"kernel8.img": gzip.compress(image), "bcm2711-rpi-4-b.dtb": bytes(dtb),
-                    "initramfs-linux.img": b"initramfs" * 256, "kernel-version": b"7.2.9-test\n",
-                    "cmdline.txt": (f"root=PARTUUID={root_uuid} rw rootwait rootfstype=ext4 "
-                                    "cma=256M@0-1G module_blacklist=simpledrm console=tty1\n").encode()}
-        if change:
-            payloads.update(change)
+                    "initramfs-linux.img": b"initramfs" * 256, "kernel-version": b"7.2.9-test\n"}
+        base = (f"root=PARTUUID={root_uuid} rw rootwait rootfstype=ext4 "
+                "cma=256M@0-1G module_blacklist=simpledrm console=tty1")
+        change = dict(change or {})
+        payloads.update({name: data for name, data in change.items() if name != "cmdline.txt"})
+        backend = VERIFY.native_backend()
+        payload_sums = "".join(f"{hashlib.sha256(payloads[name]).hexdigest()}  {name}\n"
+                               for name in backend["PAYLOAD"])
+        release = backend["boot_set_id"](payload_sums, base)
+        payloads["cmdline.txt"] = change.get("cmdline.txt", f"{base} rpi4.boot_set={release}\n".encode())
         sums = "".join(f"{hashlib.sha256(data).hexdigest()}  {name}\n" for name, data in payloads.items()).encode()
-        prefix = "native/" + hashlib.sha256(sums).hexdigest()[:24]
+        prefix = "native/" + release
         selector = (f"kernel={prefix}/kernel8.img\ndevice_tree={prefix}/bcm2711-rpi-4-b.dtb\n"
                     f"initramfs {prefix}/initramfs-linux.img followkernel\ncmdline={prefix}/cmdline.txt\n")
         files = {f"/{prefix}/{name}": data for name, data in payloads.items()}
         files[f"/{prefix}/SHA256SUMS"] = sums
         files["/native-current.txt"] = selector.encode()
+        files["/native-fallback.txt"] = ("# Fallback kernel 7.2.9-test\n" + selector).encode()
         files["/config.txt"] = (PROJECT / "configs/native/config.txt").read_bytes()
         hashes = {name.lstrip("/"): hashlib.sha256(data).hexdigest() for name, data in files.items()}
-        metadata = {"boot_mode": "native", "root_partuuid": root_uuid, "native_selector": selector,
+        metadata = {"boot_mode": "native", "root_partuuid": root_uuid,
+                    "native_selector": files["/native-current.txt"].decode(),
+                    "native_fallback_selector": files["/native-fallback.txt"].decode(),
                     "boot_files_sha256": hashes, "firmware": {"files_sha256": {"config.txt": hashes["config.txt"]}}}
         return files, metadata
 
@@ -168,6 +176,26 @@ class NativeVerificationTests(unittest.TestCase):
                        {"cmdline.txt": b"root=PARTUUID=wrong rw rootwait\n"}):
             with self.subTest(change=list(change)), self.assertRaises(ValueError):
                 self.verify(*self.fixture(change))
+
+    def test_boot_set_name_and_fallback_selector_are_checked(self):
+        files, metadata = self.fixture()
+        name = metadata["native_selector"].split("native/")[1][:24]
+        other = "0" * 24
+        cases = {"cmdline names another set": lambda f, m: f.update({
+                     f"/native/{name}/cmdline.txt": f[f"/native/{name}/cmdline.txt"].replace(name.encode(), other.encode())}),
+                 "fallback points elsewhere": lambda f, m: m.update({
+                     "native_fallback_selector": m["native_fallback_selector"].replace(name, other)})}
+        for label, mutate in cases.items():
+            with self.subTest(label=label):
+                files, metadata = self.fixture()
+                mutate(files, metadata)
+                if label == "fallback points elsewhere":
+                    files["/native-fallback.txt"] = metadata["native_fallback_selector"].encode()
+                else:
+                    metadata["boot_files_sha256"][f"native/{name}/cmdline.txt"] = hashlib.sha256(
+                        files[f"/native/{name}/cmdline.txt"]).hexdigest()
+                with self.assertRaises(ValueError):
+                    self.verify(files, metadata)
 
     def test_selector_rejects_mixed_sets_traversal_and_repeated_directives(self):
         _, metadata = self.fixture()

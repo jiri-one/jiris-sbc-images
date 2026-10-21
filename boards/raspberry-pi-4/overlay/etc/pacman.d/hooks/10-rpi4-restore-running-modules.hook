@@ -1,0 +1,11 @@
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Path
+Target = usr/lib/modules/*/vmlinuz
+
+[Action]
+Description = Keeping the running kernel's modules for the fallback boot set...
+When = PostTransaction
+Exec = /usr/bin/bash /usr/local/lib/rpi4/keep-running-modules restore

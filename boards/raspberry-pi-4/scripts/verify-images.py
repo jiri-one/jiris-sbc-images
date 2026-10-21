@@ -302,6 +302,9 @@ def verify_native_boot(filesystem, metadata, boot_hashes):
     text = fat_file(filesystem, "/native-current.txt").decode()
     require(text == metadata["native_selector"], "Native selector differs from metadata")
     fields = native_fields(text)
+    fallback = fat_file(filesystem, "/native-fallback.txt").decode()
+    require(fallback == metadata["native_fallback_selector"], "Fallback selector differs from metadata")
+    require(native_fields(fallback) == fields, "A new image must fall back to its only boot set")
     config = fat_file(filesystem, "/config.txt").decode()
     settings = [line.strip() for line in config.splitlines() if line.strip() and not line.lstrip().startswith("#")]
     expected = {"[all]", "arm_64bit=1", "enable_gic=1", "kernel_address=0x200000",
@@ -312,8 +315,6 @@ def verify_native_boot(filesystem, metadata, boot_hashes):
             settings[-1] == "include native-current.txt", "Unexpected native firmware configuration")
     release = str(PurePosixPath(fields["kernel"]).parent)
     manifest = fat_file(filesystem, "/" + release + "/SHA256SUMS")
-    require(PurePosixPath(release).name == hashlib.sha256(manifest).hexdigest()[:24],
-            "Native boot-set content-address mismatch")
     payloads = {}
     for line in manifest.decode().splitlines():
         match = re.fullmatch(r"([0-9a-f]{64})  ([A-Za-z0-9_.-]+)", line)
@@ -326,12 +327,17 @@ def verify_native_boot(filesystem, metadata, boot_hashes):
     require(re.fullmatch(r"[0-9A-Za-z._+-]+", version) is not None and version not in (".", ".."),
             "Unsafe native kernel version")
     backend = native_backend()
+    cmdline = fat_file(filesystem, "/" + fields["cmdline"]).decode()
+    base, _, option = cmdline.strip().rpartition(" ")
+    name = PurePosixPath(release).name
+    require(option == backend["BOOT_SET_OPTION"] + name, "Native command line does not name its boot set")
+    payload_sums = "".join(f"{payloads[item]}  {item}\n" for item in backend["PAYLOAD"])
+    require(backend["boot_set_id"](payload_sums, base) == name, "Native boot-set content-address mismatch")
     kernel = fat_file(filesystem, "/" + fields["kernel"])
     require(kernel.startswith(b"\x1f\x8b"), "Native kernel is not a compressed ARM64 Image")
     raw = backend["raw_image"](kernel)
     backend["validate_dtb"](fat_file(filesystem, "/" + fields["device_tree"]))
     require(len(fat_file(filesystem, "/" + fields["initramfs"])) > 1024, "Native initramfs is implausibly small")
-    cmdline = fat_file(filesystem, "/" + fields["cmdline"]).decode()
     require(len(cmdline.splitlines()) == 1, "Native command line must be one line")
     options = cmdline.split()
     require([word for word in options if word.startswith("root=")] ==
@@ -537,6 +543,10 @@ def verify_root(filesystem, metadata, boot_info):
         require(runtime["version"] == expected_runtime["version"] and runtime["commit"] == expected_runtime["commit"] and
                 runtime["sha256"] == {name: item["sha256"] for name, item in expected_runtime["files"].items()},
                 "Installed runtime firmware pin differs from build provenance")
+        for path in ("/etc/pacman.d/hooks/10-rpi4-save-running-modules.hook",
+                     "/etc/pacman.d/hooks/10-rpi4-restore-running-modules.hook",
+                     "/usr/local/lib/rpi4/keep-running-modules"):
+            require_inode(filesystem, path, "regular", 0)
     if metadata.get("boot_mode", "uefi") == "native" or "wifi_firmware" in metadata:
         verify_wifi(filesystem, metadata["wifi_firmware"])
     require(read_file(filesystem, "/usr/share/rpi4/initramfs-kernel").decode().strip() == kver,

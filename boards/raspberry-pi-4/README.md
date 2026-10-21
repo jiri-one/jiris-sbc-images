@@ -249,14 +249,49 @@ record, preserving its root PARTUUID, boot filesystem UUID, image flavour and
 original boot mode; then run the updater and retry the package update.
 After changing initramfs configuration, run `sudo rpi4-update-boot`; it rebuilds
 the selected initramfs itself. Updates to `kbd`, `fbset` and `terminus-font` also
-refresh the selected boot files through the package hooks. Previous boot files are retained for diagnosis, without
-automatic fallback or a complete system rollback. Recovery from power loss
-during a FAT update is not guaranteed.
+refresh the selected boot files through the package hooks. The boot set the Pi
+is running stays available as a [fallback](#kernel-fallback). Recovery from power
+loss during a FAT update is not guaranteed.
 
 The build records `RPI4_BOOT_MODE=native` in `/etc/rpi4-image.conf`; package hooks
 retain that boot path. Existing UEFI installations, including older ones without
 this setting, retain UEFI. Changing the build default does not convert old cards.
 Choose the boot path when building; editing that setting is not a migration procedure.
+
+### Kernel fallback
+
+The Raspberry Pi firmware cannot detect a failed boot, and the mainline kernel
+cannot request a one-time trial boot from it. The updater therefore keeps a
+second complete boot set. Whenever the boot files change, the set the Pi is
+running becomes the fallback, selected by `/boot/native-fallback.txt`, if it is
+intact and its kernel modules are present; otherwise the earlier fallback stays.
+Pacman hooks keep that kernel's modules after its package is replaced; the
+updater removes them once no boot set needs them. On a new card, both selectors
+point to the same set until the first kernel or initramfs change.
+
+If a new kernel does not boot:
+
+1. Power off and put the card into any computer. Its boot partition is FAT.
+2. In `config.txt` on that partition, replace `include native-current.txt`
+   with `include native-fallback.txt`.
+3. Boot the Pi. It starts the previous kernel with its modules.
+
+While the fallback is selected, package updates still refresh
+`native-current.txt` but leave the fallback unchanged. To try the current kernel
+again, for example after a fixed package arrives, restore
+`include native-current.txt` in `/boot/config.txt` and reboot; repeat the steps
+above if it fails again. Installing the fallback's kernel version again, for
+example as a downgrade with `pacman -U`, conflicts with its kept modules;
+staying on the fallback until a fixed package arrives avoids that.
+
+To add the fallback to a card built earlier, copy
+`usr/local/lib/rpi4/update-native-boot.py`,
+`usr/local/lib/rpi4/keep-running-modules` and the two
+`etc/pacman.d/hooks/10-rpi4-*-running-modules.hook` files from `overlay/` to
+the same paths, owned by root. Then copy `/boot/native-current.txt` to
+`/boot/native-fallback.txt`, run `sudo rpi4-update-boot` and reboot. The copied
+selector keeps the old set as the fallback until the first update after that
+reboot.
 
 ## HDMI console
 

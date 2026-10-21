@@ -58,6 +58,8 @@ is published.
 (21 October at 00:19 CEST), after 48 uninterrupted hours. The tested Pi 4B 8 GB
 used native SD boot, the original Raspberry Pi PSU and Arch Linux Ports
 mainline kernel **7.2.9-arch1-1**, running headless with Ethernet for management.
+The board used a **passively cooled Joy-Pi Armor case, without a fan**; the
+temperature result below applies to this cooling setup.
 
 | Check | Result |
 | --- | --- |
@@ -70,8 +72,9 @@ mainline kernel **7.2.9-arch1-1**, running headless with Ethernet for management
 
 All 144 workload logs and the system journal were checked. Repeated 6 GiB
 allocations do not establish coverage of every physical address in the board's
-8 GB RAM. This result applies to this PSU, SD and system configuration, including
-the Wi-Fi additions below, rather than every future build or storage setup.
+8 GB RAM. This result applies to this cooling setup, PSU, SD and system
+configuration, including the Wi-Fi additions below, rather than every future
+build or storage setup.
 
 **Wi-Fi:** the same mainline kernel used Raspberry Pi Wi-Fi firmware **7.45.265**
 with its CLM and board NVRAM files, `brcmfmac` options

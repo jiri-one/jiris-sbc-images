@@ -37,17 +37,66 @@ to that tool or to one isolated setting.
 
 Physical SD boot, normal reboot, full RAM, four-core load, Ethernet, SSH and the
 4K console have been checked. Memory and SD/network transfers passed with
-4.5 GiB allocated. Physical USB-root boot, an upgrade to a different kernel
-version, unattended recovery, Wi-Fi, Bluetooth, GPIO/HATs and graphics
+4.5 GiB allocated; a later [48-hour test](#48-hour-stability-test) covered
+6 GiB memory passes and Wi-Fi with additional firmware and configuration.
+Physical USB-root boot, an upgrade to a different kernel
+version, unattended recovery, Bluetooth, GPIO/HATs and graphics
 acceleration remain unverified. Repeated keyboard reconnection across USB 2
 and USB 3 ports, plus HDMI unplug/replug, passed on this setup without a reboot.
 The final generic image passed offline and generic QEMU checks;
-the physical tests used the maintained installation with the same runtime
-configuration, rather than flashing that final generic image.
+the physical tests used the maintained installation, rather than flashing that
+final generic image. The Wi-Fi additions used below are not included in the
+current image builder.
 
 Existing release downloads predate these native-boot, console and power changes.
 Build from current source to include them until a corresponding native release
 is published.
+
+## 48-hour stability test
+
+**CPU/RAM: PASS**, completed on 20 October 2026 at 22:19 UTC
+(21 October at 00:19 CEST), after 48 uninterrupted hours. The tested Pi 4B 8 GB
+used native SD boot, the original Raspberry Pi PSU and Arch Linux Ports
+mainline kernel **7.2.9-arch1-1**, running headless with Ethernet for management.
+
+| Check | Result |
+| --- | --- |
+| Complete blocks | 12/12, including every workload and idle phase |
+| Memtester | 12 full passes, 216 subtests; 6144 MiB locked per pass |
+| Combined CPU/VM | 12 one-hour runs with four CPU workers and 4096 MiB locked VM memory |
+| Load/idle cycles | 120 cycles of 10 s CPU load and 20 s idle; 20 minutes of additional CPU load |
+| Maximum temperature | 70.1 °C |
+| Errors | No reboot, RAM errors, undervoltage, OOM or new kernel errors; all workload exit codes zero |
+
+All 144 workload logs and the system journal were checked. Repeated 6 GiB
+allocations do not establish coverage of every physical address in the board's
+8 GB RAM. This result applies to this PSU, SD and system configuration, including
+the Wi-Fi additions below, rather than every future build or storage setup.
+
+**Wi-Fi:** the same mainline kernel used Raspberry Pi Wi-Fi firmware **7.45.265**
+with its CLM and board NVRAM files, `brcmfmac` options
+`roamoff=1 feature_disable=0x282000`, power saving **off**, and a gateway
+keepalive once per minute. These were manual additions to the maintained
+installation; the image still defaults to Ethernet with Wi-Fi blocked.
+
+The observer sent three gateway pings over `wlan0` each minute:
+
+| Phase | Sent / received | Highest RTT |
+| --- | --- | --- |
+| CPU/VM | 2139 / 2139 | 19.618 ms |
+| Memtester | 3168 / 3168 | 8.421 ms |
+| Idle | 3243 / 3243 | 6.732 ms |
+| Short CPU cycles | 54 / 54 | 6.086 ms |
+| Probes spanning phase transitions | 15 / 15 | 9.090 ms |
+| **Total** | **8619 / 8619; zero loss** | **19.618 ms** |
+
+No disconnect/reconnect events or missing probes were recorded after the
+observer started; all 2873 observations reported power saving off. The first
+468 seconds had no observer probes. Keepalive and probes kept the link active,
+so this does not test complete Wi-Fi inactivity or establish continuous hosting
+availability; brief disruptions between probes can be missed. Router-access
+settings were changed during the run, with no outage observed; the exact
+settings and time were not recorded.
 
 ## Build
 
@@ -228,8 +277,10 @@ full 600–1800 MHz range on the tested board. It starts with Wi-Fi and Bluetoot
 soft-blocked and uses wired Ethernet. The image includes `wireless-regdb` but no
 Wi-Fi supplicant. When enabling Wi-Fi, set the country where the Pi operates,
 for example `WIRELESS_REGDOM="CZ"` in `/etc/conf.d/wireless-regdom` or
-`country=CZ` in the supplicant's configuration. Wireless operation and its
-firmware requirements have not been validated here.
+`country=CZ` in the supplicant's configuration. The
+[48-hour test](#48-hour-stability-test) verified one manually configured Wi-Fi
+setup with additional Raspberry Pi Wi-Fi firmware; those additions are not
+installed by the image builder.
 
 PowerTOP is included for diagnostics:
 

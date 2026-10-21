@@ -45,8 +45,8 @@ acceleration remain unverified. Repeated keyboard reconnection across USB 2
 and USB 3 ports, plus HDMI unplug/replug, passed on this setup without a reboot.
 The final generic image passed offline and generic QEMU checks;
 the physical tests used the maintained installation, rather than flashing that
-final generic image. The Wi-Fi additions used below are not included in the
-current image builder.
+final generic image. The image builder now installs the tested Wi-Fi firmware
+and driver settings, but not the test's keepalive; see [Wi-Fi](#wi-fi).
 
 Existing release downloads predate these native-boot, console and power changes.
 Build from current source to include them until a corresponding native release
@@ -80,7 +80,9 @@ build or storage setup.
 with its CLM and board NVRAM files, `brcmfmac` options
 `roamoff=1 feature_disable=0x282000`, power saving **off**, and a gateway
 keepalive once per minute. These were manual additions to the maintained
-installation; the image still defaults to Ethernet with Wi-Fi blocked.
+installation. The image builder now installs the firmware and driver settings;
+Wi-Fi stays blocked until enabled. See [Wi-Fi](#wi-fi), including why the
+keepalive is not part of the image.
 
 The observer sent three gateway pings over `wlan0` each minute:
 
@@ -126,8 +128,8 @@ scripts/build-image.sh --reuse-rootfs /absolute/prepared/rootfs
 This clones the supplied tree into a new `build/native/rootfs`, refreshes the
 native boot configuration and initramfs, and clears per-device identities and
 SSH keys. The destination must not already exist. The supplied tree must contain
-all current required packages, including `powertop`; reuse mode does not install
-missing packages.
+all current required packages, including `powertop` and `iw`; reuse mode does
+not install missing packages.
 
 The driver assembles and verifies the image. Inputs are pinned in
 `configs/sources.env`; the bootstrap uses HTTPS plus a pinned hash, while
@@ -273,17 +275,46 @@ The cursor remains visible but does not blink. To restore blinking, remove
 `/etc/tmpfiles.d/rpi4-cursor.conf` and write `1` to
 `/sys/class/graphics/fbcon/cursor_blink`.
 
+## Wi-Fi
+
+The image installs the Wi-Fi configuration that passed the
+[48-hour test](#48-hour-stability-test):
+
+- Raspberry Pi's own firmware for the on-board CYW43455, **7.45.265** with its
+  CLM and board NVRAM files. They come from
+  [RPi-Distro/firmware-nonfree](https://github.com/RPi-Distro/firmware-nonfree),
+  pinned by commit and SHA256 in `configs/sources.env`, and are installed in
+  `/usr/lib/firmware/updates/brcm/`, which the kernel searches before the Ports
+  firmware. Their Cypress licence is in `/usr/share/licenses/rpi4-wifi-firmware/`
+  and their provenance in `/usr/share/rpi4/wifi-firmware.json`.
+- `brcmfmac` options `roamoff=1 feature_disable=0x282000`, as in Raspberry Pi
+  OS, in `/etc/modprobe.d/rpi4-wifi.conf`.
+- Power saving off for this chip, set by a udev rule with `iw`.
+
+In short controlled runs on the tested Pi, the Ports firmware **7.45.286** lost
+0.6–2.4 % of gateway pings at idle and 6–10 % under CPU and memory load, both
+with the earlier `feature_disable=0x200000` alone and with these options. The
+Raspberry Pi firmware lost none of 3000; switching back to the Ports firmware
+brought the loss back.
+
+Wi-Fi starts soft-blocked, and the image includes `wireless-regdb` but no
+supplicant. To use Wi-Fi, install and configure a supplicant such as
+`wpa_supplicant` or `iwd` over Ethernet, then run `sudo rfkill unblock wifi`.
+Set the country where the Pi operates, for example `WIRELESS_REGDOM="CZ"` in
+`/etc/conf.d/wireless-regdom` or `country=CZ` in the supplicant's configuration.
+
+The 48-hour test also pinged the gateway over Wi-Fi once per minute. The stock
+firmware of the test router, an ASUS RT-AX53U, disconnected a station after
+about 8 minutes without traffic, which happens when Ethernet carries all
+traffic. After the router moved to OpenWrt, which instead polls idle stations
+about every 5 minutes, the Pi stayed connected without any traffic for over an
+hour. The image therefore includes no keepalive.
+
 ## Power and PowerTOP
 
 The native setup keeps all four cores available and uses `schedutil` with the
 full 600–1800 MHz range on the tested board. It starts with Wi-Fi and Bluetooth
-soft-blocked and uses wired Ethernet. The image includes `wireless-regdb` but no
-Wi-Fi supplicant. When enabling Wi-Fi, set the country where the Pi operates,
-for example `WIRELESS_REGDOM="CZ"` in `/etc/conf.d/wireless-regdom` or
-`country=CZ` in the supplicant's configuration. The
-[48-hour test](#48-hour-stability-test) verified one manually configured Wi-Fi
-setup with additional Raspberry Pi Wi-Fi firmware; those additions are not
-installed by the image builder.
+soft-blocked and uses wired Ethernet; see [Wi-Fi](#wi-fi) to enable wireless.
 
 PowerTOP is included for diagnostics:
 

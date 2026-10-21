@@ -1,0 +1,2 @@
+# Power saving was off in every tested Wi-Fi configuration.
+ACTION=="add", SUBSYSTEM=="net", DRIVERS=="brcmfmac", RUN+="/usr/bin/iw dev $name set power_save off"

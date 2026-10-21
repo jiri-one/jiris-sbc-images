@@ -11,6 +11,11 @@ from pathlib import Path
 import re
 
 PROJECT = Path(__file__).resolve().parent.parent
+WIFI_BOARD = "brcmfmac43455-sdio.raspberrypi,4-model-b"
+# fetch-inputs.sh stages the same names; change both together.
+WIFI_FILES = (("cypress/cyfmac43455-sdio-standard.bin", f"{WIFI_BOARD}.bin", "WIFI_BIN_SHA256"),
+              ("cypress/cyfmac43455-sdio.clm_blob", f"{WIFI_BOARD}.clm_blob", "WIFI_CLM_SHA256"),
+              ("brcm/brcmfmac43455-sdio.txt", f"{WIFI_BOARD}.txt", "WIFI_NVRAM_SHA256"))
 
 
 def sha256(path):
@@ -55,6 +60,29 @@ def runtime_firmware():
     }
 
 
+def wifi_firmware():
+    commit = os.environ["WIFI_FIRMWARE_COMMIT"]
+    if re.fullmatch(r"[0-9a-f]{40}", commit) is None:
+        raise ValueError("Expected a pinned Wi-Fi firmware commit")
+    files = {}
+    for source, installed, hash_variable in WIFI_FILES:
+        actual = sha256(PROJECT / "cache" / f"raspberrypi-wifi-firmware-{commit}" / Path(source).name)
+        if actual != os.environ[hash_variable]:
+            raise ValueError(f"Downloaded input differs from pinned {hash_variable}")
+        if sha256(PROJECT / "build/wifi-firmware" / installed) != actual:
+            raise ValueError(f"Staged Wi-Fi firmware differs from verified input: {installed}")
+        files[installed] = {
+            "url": f"{os.environ['WIFI_FIRMWARE_BASE'].rstrip('/')}/{source}",
+            "sha256": actual,
+        }
+    return {
+        "project": "RPi-Distro/firmware-nonfree",
+        "commit": commit,
+        "files": files,
+        "authentication": "HTTPS at pinned commit and SHA256 in configs/sources.env",
+    }
+
+
 def manifest(verified_fingerprint, boot_mode="native"):
     if boot_mode not in ("native", "uefi"):
         raise ValueError("Boot mode must be native or uefi")
@@ -79,6 +107,7 @@ def manifest(verified_fingerprint, boot_mode="native"):
             "authentication": "HTTPS and pinned maintainer-published SHA256; detached signature unavailable",
         },
         "runtime_firmware": runtime_firmware(),
+        "wifi_firmware": wifi_firmware(),
         "package_signer": {
             "fingerprint": fingerprint,
             "public_key_sha256": sha256(PROJECT / "cache/ports-public.key"),

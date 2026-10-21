@@ -22,6 +22,8 @@ MAKE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MAKE)
 FINGERPRINT = "1" * 40
 COMMIT = "2" * 40
+WIFI_COMMIT = "4" * 40
+WIFI_BOARD = "brcmfmac43455-sdio.raspberrypi,4-model-b"
 
 
 def digest(data):
@@ -35,7 +37,8 @@ class RuntimeFirmwareTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.workspace = Path(temporary.name) / "project"
-        for directory in ("scripts", "configs", "fixtures/runtime", "commands"):
+        for directory in ("scripts", "configs", "fixtures/runtime", "fixtures/wifi/cypress",
+                          "fixtures/wifi/brcm", "commands"):
             (self.workspace / directory).mkdir(parents=True)
         for name in ("fetch-inputs.sh", "write-input-manifest.py", "build-paths.sh"):
             shutil.copy2(PROJECT / "scripts" / name, self.workspace / "scripts" / name)
@@ -63,6 +66,13 @@ class RuntimeFirmwareTests(unittest.TestCase):
         }
         for name, data in self.runtime.items():
             (self.fixtures / "runtime" / name).write_bytes(data)
+        self.wifi = {
+            "cypress/cyfmac43455-sdio-standard.bin": (f"{WIFI_BOARD}.bin", b"tested Wi-Fi firmware"),
+            "cypress/cyfmac43455-sdio.clm_blob": (f"{WIFI_BOARD}.clm_blob", b"tested regulatory blob"),
+            "brcm/brcmfmac43455-sdio.txt": (f"{WIFI_BOARD}.txt", b"tested NVRAM\n"),
+        }
+        for source, (_, data) in self.wifi.items():
+            (self.fixtures / "wifi" / source).write_bytes(data)
         pins = {
             "BOOTSTRAP_NAME": "bootstrap.tar.zst",
             "BOOTSTRAP_BASE": self.fixtures.as_uri(),
@@ -78,6 +88,11 @@ class RuntimeFirmwareTests(unittest.TestCase):
             "RUNTIME_FIRMWARE_BASE": (self.fixtures / "runtime").as_uri(),
             "RUNTIME_START4_SHA256": digest(self.runtime["start4.elf"]),
             "RUNTIME_FIXUP4_SHA256": digest(self.runtime["fixup4.dat"]),
+            "WIFI_FIRMWARE_COMMIT": WIFI_COMMIT,
+            "WIFI_FIRMWARE_BASE": (self.fixtures / "wifi").as_uri(),
+            "WIFI_BIN_SHA256": digest(self.wifi["cypress/cyfmac43455-sdio-standard.bin"][1]),
+            "WIFI_CLM_SHA256": digest(self.wifi["cypress/cyfmac43455-sdio.clm_blob"][1]),
+            "WIFI_NVRAM_SHA256": digest(self.wifi["brcm/brcmfmac43455-sdio.txt"][1]),
             "TOOLS_BASE": "example.invalid/tools@sha256:" + "3" * 64,
         }
         (self.workspace / "configs/sources.env").write_text(
@@ -96,6 +111,8 @@ class RuntimeFirmwareTests(unittest.TestCase):
         gpg.chmod(0o755)
         self.cache = self.workspace / "cache" / f"raspberrypi-firmware-{COMMIT}"
         self.staging = self.workspace / "build/firmware"
+        self.wifi_cache = self.workspace / "cache" / f"raspberrypi-wifi-firmware-{WIFI_COMMIT}"
+        self.wifi_staging = self.workspace / "build/wifi-firmware"
         self.manifest_path = self.workspace / "artifacts/input-manifest.json"
 
     def fetch(self, boot_mode="uefi", arguments=()):
@@ -302,6 +319,54 @@ class RuntimeFirmwareTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "matched start4/fixup4 pair"):
             self.install(manifest["runtime_firmware"])
         self.assertFalse(any((self.workspace / "build/rootfs/boot").iterdir()))
+
+
+    def install_wifi(self, wifi_firmware):
+        root = self.workspace / "build/native/rootfs"
+        (root / "usr/share/rpi4").mkdir(parents=True, exist_ok=True)
+        with patch.multiple(MAKE, PROJECT=self.workspace, ROOT=root,
+                            WIFI_FIRMWARE=self.wifi_staging, BOOT_MODE="native"):
+            return root, MAKE.install_wifi_firmware(wifi_firmware)
+
+    def test_wifi_firmware_is_staged_under_board_names_and_recorded(self):
+        manifest = self.fetch_successfully()
+        wifi = manifest["wifi_firmware"]
+        self.assertEqual(wifi["commit"], WIFI_COMMIT)
+        self.assertEqual(set(wifi["files"]), set(MAKE.WIFI_NAMES))
+        for source, (installed, data) in self.wifi.items():
+            with self.subTest(source=source):
+                self.assertEqual(wifi["files"][installed],
+                                 {"url": (self.fixtures / "wifi" / source).as_uri(), "sha256": digest(data)})
+                self.assertEqual((self.wifi_staging / installed).read_bytes(), data)
+        root, hashes = self.install_wifi(wifi)
+        target = root / "usr/lib/firmware/updates/brcm"
+        (target / "other-override.bin").write_bytes(b"left in a snapshot")
+        self.assertEqual(self.install_wifi(wifi)[1], hashes)
+        self.assertEqual(sorted(path.name for path in target.iterdir()), sorted(MAKE.WIFI_NAMES))
+        for installed, data in self.wifi.values():
+            self.assertEqual((target / installed).read_bytes(), data)
+            self.assertEqual((target / installed).stat().st_mode & 0o777, 0o644)
+            self.assertEqual(hashes[installed], digest(data))
+        pin = json.loads((root / "usr/share/rpi4/wifi-firmware.json").read_text())
+        self.assertEqual(pin, {"commit": WIFI_COMMIT, "sha256": hashes})
+
+    def test_wifi_firmware_changes_are_rejected(self):
+        manifest = self.fetch_successfully()
+        before = self.manifest_path.read_bytes()
+        source = "brcm/brcmfmac43455-sdio.txt"
+        installed, data = self.wifi[source]
+        (self.wifi_cache / Path(source).name).write_bytes(b"corrupted cached NVRAM")
+        result = self.fetch()
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("brcmfmac43455-sdio.txt: FAILED", result.stdout)
+        self.assertEqual(self.manifest_path.read_bytes(), before)
+        self.assertEqual((self.wifi_staging / installed).read_bytes(), data)
+        (self.wifi_staging / installed).write_bytes(b"changed stage")
+        with self.assertRaisesRegex(ValueError, "Staged Wi-Fi firmware changed"):
+            self.install_wifi(manifest["wifi_firmware"])
+        del manifest["wifi_firmware"]["files"][installed]
+        with self.assertRaisesRegex(ValueError, "firmware, CLM and NVRAM"):
+            self.install_wifi(manifest["wifi_firmware"])
 
 
 if __name__ == "__main__":

@@ -21,6 +21,9 @@ import uuid
 PROJECT = Path(__file__).resolve().parent.parent
 ROOT = PROJECT / "build/native/rootfs"
 FIRMWARE = PROJECT / "build/firmware"
+WIFI_FIRMWARE = PROJECT / "build/wifi-firmware"
+WIFI_NAMES = tuple(f"brcmfmac43455-sdio.raspberrypi,4-model-b.{suffix}"
+                   for suffix in ("bin", "clm_blob", "txt"))
 ARTIFACTS = PROJECT / "artifacts/native"
 BUILD = PROJECT / "build/native/images"
 MIB = 1024 * 1024
@@ -363,6 +366,28 @@ def install_native_firmware(runtime_firmware):
              "overlays/rpi4-usb-c-data-disable.dtbo")}
 
 
+def install_wifi_firmware(wifi_firmware):
+    """The loader searches updates/ before the packaged firmware."""
+    if set(wifi_firmware["files"]) != set(WIFI_NAMES):
+        raise ValueError("Wi-Fi firmware provenance must contain the board's firmware, CLM and NVRAM")
+    for name, details in wifi_firmware["files"].items():
+        if checksum(regular_file(WIFI_FIRMWARE / name, WIFI_FIRMWARE)) != details["sha256"]:
+            raise ValueError(f"Staged Wi-Fi firmware changed: {name}; rerun scripts/fetch-inputs.sh")
+    destination = safe_path(ROOT / "usr/lib/firmware/updates/brcm", ROOT)
+    destination.mkdir(parents=True, exist_ok=True)
+    # A cloned rootfs may hold other overrides; ship only the tested files.
+    for child in destination.iterdir():
+        if child.name not in WIFI_NAMES:
+            remove_generated(child)
+    for name in WIFI_NAMES:
+        copy_regular(WIFI_FIRMWARE / name, destination / name)
+        (destination / name).chmod(0o644)
+    pin = {"commit": wifi_firmware["commit"],
+           "sha256": {name: details["sha256"] for name, details in wifi_firmware["files"].items()}}
+    write_file(ROOT / "usr/share/rpi4/wifi-firmware.json", json.dumps(pin, indent=2) + "\n")
+    return {name: checksum(destination / name) for name in WIFI_NAMES}
+
+
 def package_file_check():
     log = output_file(build_directory() / "logs/package-files.log")
     with log.open("w") as stream:
@@ -379,6 +404,10 @@ def build_image():
         metadata["firmware"]["version"] = runtime_firmware["version"]
     metadata["firmware"]["runtime_firmware"] = runtime_firmware
     metadata["firmware"]["files_sha256"] = install_firmware(runtime_firmware)
+    metadata["wifi_firmware"] = inputs["wifi_firmware"]
+    if install_wifi_firmware(inputs["wifi_firmware"]) != {
+            name: details["sha256"] for name, details in inputs["wifi_firmware"]["files"].items()}:
+        raise RuntimeError("Installed Wi-Fi firmware differs from its verified input")
     write_file(ROOT / "etc/rpi4-image.conf",
                f"ROOT_PARTUUID={metadata['root_partuuid']}\n"
                f"BOOT_FS_UUID={metadata['boot_fs_uuid']}\n"

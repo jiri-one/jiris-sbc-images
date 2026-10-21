@@ -417,6 +417,31 @@ def require_inode(filesystem, path, kind, uid, mode=None, gid=None):
     return info
 
 
+def verify_wifi(filesystem, wifi_firmware):
+    expected = {name: item["sha256"] for name, item in wifi_firmware["files"].items()}
+    directory = "/usr/lib/firmware/updates/brcm"
+    require(len(expected) == 3 and sorted(list_directory(filesystem, directory)) == sorted(expected),
+            "Unexpected Wi-Fi firmware overrides")
+    for name, value in expected.items():
+        require_inode(filesystem, f"{directory}/{name}", "regular", 0, 0o644, 0)
+        require(hashlib.sha256(read_file(filesystem, f"{directory}/{name}")).hexdigest() == value,
+                f"Installed Wi-Fi firmware differs from its pinned input: {name}")
+    pin = json.loads(read_file(filesystem, "/usr/share/rpi4/wifi-firmware.json"))
+    require(pin == {"commit": wifi_firmware["commit"], "sha256": expected},
+            "Installed Wi-Fi firmware pin differs from build provenance")
+    require(b"\noptions brcmfmac roamoff=1 feature_disable=0x282000\n"
+            in b"\n" + read_file(filesystem, "/etc/modprobe.d/rpi4-wifi.conf"),
+            "Tested brcmfmac options are missing")
+    require(b'DRIVERS=="brcmfmac", RUN+="/usr/bin/iw dev $name set power_save off"'
+            in read_file(filesystem, "/etc/udev/rules.d/70-rpi4-wifi-power-save.rules"),
+            "Wi-Fi power-save rule is missing")
+    require_inode(filesystem, "/usr/bin/iw", "regular", 0)
+    licence = "/usr/share/licenses/rpi4-wifi-firmware/LICENCE.cypress"
+    require_inode(filesystem, licence, "regular", 0)
+    require(read_file(filesystem, licence) == (PROJECT / "overlay" / licence.lstrip("/")).read_bytes(),
+            "Wi-Fi firmware licence differs from the overlay")
+
+
 def verify_root(filesystem, metadata, boot_info):
     with filesystem.open("rb") as stream:
         stream.seek(1024)
@@ -512,6 +537,8 @@ def verify_root(filesystem, metadata, boot_info):
         require(runtime["version"] == expected_runtime["version"] and runtime["commit"] == expected_runtime["commit"] and
                 runtime["sha256"] == {name: item["sha256"] for name, item in expected_runtime["files"].items()},
                 "Installed runtime firmware pin differs from build provenance")
+    if metadata.get("boot_mode", "uefi") == "native" or "wifi_firmware" in metadata:
+        verify_wifi(filesystem, metadata["wifi_firmware"])
     require(read_file(filesystem, "/usr/share/rpi4/initramfs-kernel").decode().strip() == kver,
             "Initramfs build marker does not match selected kernel")
 

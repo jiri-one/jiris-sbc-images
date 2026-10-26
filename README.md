@@ -1,6 +1,8 @@
 # Jiri's SBC Images
 
-I like Arch Linux for its simplicity and use it almost everywhere. Getting it
+I like Arch Linux for its simplicity and use it almost everywhere
+([#arch-everywhere](https://github.com/topics/arch-everywhere)
+[#iusearchbtw](https://github.com/topics/iusearchbtw)). Getting it
 running on single-board computers has often taken more work, but AI has made
 that easier. I started building Arch images with AI assistance for the SBCs
 I own, and I'm sharing them here for anyone who might find them useful.

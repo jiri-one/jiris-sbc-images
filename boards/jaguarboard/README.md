@@ -30,7 +30,10 @@ container by digest; package repositories remain rolling.
 
 ## Install
 
-In the image directory, verify and decompress the download if needed:
+Download the [image](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.15.2/arch-jaguar.img.zst) and
+[`SHA256SUMS`](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.15.2/SHA256SUMS) from the newest release, or use
+your local build's `artifacts/`. In that directory, verify and decompress the
+image if needed:
 
 ```sh
 sha256sum --ignore-missing -c SHA256SUMS

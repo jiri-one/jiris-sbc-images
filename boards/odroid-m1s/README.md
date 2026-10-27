@@ -39,7 +39,8 @@ at `/testbuild` writable.
 
 ## Install
 
-Download the image and `SHA256SUMS` from [releases](https://github.com/jiri-one/jiris-sbc-images/releases),
+Download the [image](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.14/odroid-m1s-archlinux-ports-sd-emmc.img.zst) and
+[`SHA256SUMS`](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.14/SHA256SUMS) from the newest release,
 or use your local build's `artifacts/`. In that directory, verify the image and
 decompress it if needed:
 

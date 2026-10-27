@@ -23,6 +23,18 @@ own risk.
 | [ODROID-M1S](boards/odroid-m1s/README.md) | SD/eMMC, U-Boot + extlinux | Offline and generic QEMU checks passed. Earlier SD/eMMC builds booted on hardware; this rebuild still needs hardware testing. |
 | [JaguarBoard](boards/jaguarboard/README.md) | USB → eMMC, systemd-boot with 32/64-bit EFI | [72-hour stability test passed](boards/jaguarboard/README.md#72-hour-stability-test) on v1.3 hardware running from eMMC with a Samsung USB charger. New USB image awaits hardware testing. |
 
+## Download
+
+Newest released image for each board:
+
+| Board | Image | Checksums | Release |
+| --- | --- | --- | --- |
+| Raspberry Pi 4 | [rpi4-archlinux-ports-sd-usb.img.zst](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.14/rpi4-archlinux-ports-sd-usb.img.zst) | [SHA256SUMS](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.14/SHA256SUMS) | [2026.10.14](https://github.com/jiri-one/jiris-sbc-images/releases/tag/2026.10.14), older UEFI build; see [its README](boards/raspberry-pi-4/README.md) |
+| ODROID-M1S | [odroid-m1s-archlinux-ports-sd-emmc.img.zst](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.14/odroid-m1s-archlinux-ports-sd-emmc.img.zst) | [SHA256SUMS](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.14/SHA256SUMS) | [2026.10.14](https://github.com/jiri-one/jiris-sbc-images/releases/tag/2026.10.14) |
+| JaguarBoard | [arch-jaguar.img.zst](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.15.2/arch-jaguar.img.zst) | [SHA256SUMS](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.15.2/SHA256SUMS) | [2026.10.15.2](https://github.com/jiri-one/jiris-sbc-images/releases/tag/2026.10.15.2) |
+
+Older builds are under [releases](https://github.com/jiri-one/jiris-sbc-images/releases).
+
 ## Build requirements
 
 Use an x86-64 Linux host with Python 3.11+, rootless Podman, Git, curl, GnuPG,
@@ -44,7 +56,7 @@ mean later builds can contain different packages.
 
 ## Images and login
 
-Compressed images and checksums are attached to [releases](https://github.com/jiri-one/jiris-sbc-images/releases).
+Download an image and its `SHA256SUMS` from [Download](#download).
 Follow the board's installation instructions. Before flashing, use
 [`scripts/configure-image.py`](scripts/configure-image.py) on Linux to add your
 SSH public key to a new copy of the image. It needs Python 3.11+, OpenSSH,

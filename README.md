@@ -73,8 +73,9 @@ accepts a login.
 
 ## License and credits
 
-Project scripts and documentation use [MIT](LICENSE). Packages and firmware
-retain their own licenses. Thanks to [Arch Linux Ports](https://ports.archlinux.page/aarch64/),
+Project scripts and documentation are licensed under [GPL-3.0-or-later](LICENSE).
+Releases up to and including 2026.10.29 were published under MIT. Packages and
+firmware retain their own licenses. Thanks to [Arch Linux Ports](https://ports.archlinux.page/aarch64/),
 the [pftf firmware maintainers](https://github.com/pftf/RPi4),
 [EndeavourOS ARM](https://github.com/endeavouros-arm/image-build-script), and
 [k1nerda's M1S guide](https://forum.odroid.com/viewtopic.php?f=214&t=50877).

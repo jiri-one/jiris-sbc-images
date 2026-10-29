@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: GPL-3.0-or-later
 # Build upstream ODROID-M1S U-Boot, including its Rockchip blobs.
 # The only board-config addition is CMD_SYSBOOT for the NVMe carrier card.
 # Usage: scripts/build-uboot.sh [--container|--native]

@@ -24,6 +24,8 @@ Package sources are in `configs/sources.env` and `configs/pacman.conf`.
 Bootstrap signatures, its pinned hash and package signatures are checked.
 U-Boot and Rockchip firmware versions are pinned in `scripts/build-uboot.sh`.
 Keep `build/uboot/` and the generated artifact metadata for offline verification.
+If the default U-Boot builder belongs to another checkout, set
+`M1S_UBOOT_CONTAINER` to a different container name before building.
 
 Optional QEMU boot check from this board directory; install `qemu-system-aarch64`,
 `qemu-img` and `timeout` on the host first:

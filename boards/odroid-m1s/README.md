@@ -5,8 +5,10 @@ extlinux. The default **6 GiB** image contains the bootloader, kernel and ext4
 system for SD or built-in eMMC. Use an **8 GB or larger** target.
 
 Earlier SD and personalized eMMC installations booted on hardware with Ethernet
-and SSH. This rebuild passed offline and generic QEMU checks, including SSH
-login, sudo and first-boot initialization; it still needs a hardware boot test.
+and SSH. The 2026.10.29 image passed offline checks and four generic QEMU scenarios,
+including SSH login, sudo and first-boot initialization. Its kernel, U-Boot and
+boot updater match the board in production. This image has not been flashed to
+hardware. See the [license and source NOTICE](../../notices/2026.10.29-m1s/NOTICE.md).
 This board is not the ODROID-M1.
 
 ## Build
@@ -41,8 +43,8 @@ at `/testbuild` writable.
 
 ## Install
 
-Download the [image](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.14/odroid-m1s-archlinux-ports-sd-emmc.img.zst) and
-[`SHA256SUMS`](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.14/SHA256SUMS) from the newest release,
+Download the [image](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.29/odroid-m1s-archlinux-ports-sd-emmc.img.zst) and
+[`SHA256SUMS`](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.29/SHA256SUMS) from the newest release,
 or use your local build's `artifacts/`. In that directory, verify the image and
 decompress it if needed:
 

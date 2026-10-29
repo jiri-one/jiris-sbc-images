@@ -20,7 +20,7 @@ own risk.
 | Board | Boot | Status |
 | --- | --- | --- |
 | [Raspberry Pi 4](boards/raspberry-pi-4/README.md) | Native Raspberry Pi boot, default | [48-hour CPU/RAM test passed; Wi-Fi probes had no loss](boards/raspberry-pi-4/README.md#48-hour-stability-test) on the maintained installation with manually configured Wi-Fi. SD boot, CPU scaling, Ethernet, SSH, 4K HDMI, keyboard/display reconnection, a kernel upgrade and the [kernel fallback](boards/raspberry-pi-4/README.md#kernel-fallback) checked. USB-root boot untested. [UEFI is deprecated](boards/raspberry-pi-4/docs/UEFI-LEGACY.md), with no planned maintenance. |
-| [ODROID-M1S](boards/odroid-m1s/README.md) | SD/eMMC, U-Boot + extlinux | Offline and generic QEMU checks passed. Earlier SD/eMMC builds booted on hardware; this rebuild still needs hardware testing. |
+| [ODROID-M1S](boards/odroid-m1s/README.md) | SD/eMMC, U-Boot + extlinux | Four generic QEMU scenarios passed. Kernel, U-Boot and boot updater match the board in production; this image has not been flashed to hardware. |
 | [JaguarBoard](boards/jaguarboard/README.md) | USB → eMMC, systemd-boot with 32/64-bit EFI | [72-hour stability test passed](boards/jaguarboard/README.md#72-hour-stability-test) on v1.3 hardware running from eMMC with a Samsung USB charger. New USB image awaits hardware testing. |
 
 ## Download
@@ -30,8 +30,12 @@ Newest released image for each board:
 | Board | Image | Checksums | Release |
 | --- | --- | --- | --- |
 | Raspberry Pi 4 | [rpi4-archlinux-ports-sd-usb.img.zst](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.14/rpi4-archlinux-ports-sd-usb.img.zst) | [SHA256SUMS](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.14/SHA256SUMS) | [2026.10.14](https://github.com/jiri-one/jiris-sbc-images/releases/tag/2026.10.14), older UEFI build; see [its README](boards/raspberry-pi-4/README.md) |
-| ODROID-M1S | [odroid-m1s-archlinux-ports-sd-emmc.img.zst](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.14/odroid-m1s-archlinux-ports-sd-emmc.img.zst) | [SHA256SUMS](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.14/SHA256SUMS) | [2026.10.14](https://github.com/jiri-one/jiris-sbc-images/releases/tag/2026.10.14) |
+| ODROID-M1S | [odroid-m1s-archlinux-ports-sd-emmc.img.zst](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.29/odroid-m1s-archlinux-ports-sd-emmc.img.zst) | [SHA256SUMS](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.29/SHA256SUMS) | [2026.10.29](https://github.com/jiri-one/jiris-sbc-images/releases/tag/2026.10.29) |
 | JaguarBoard | [arch-jaguar.img.zst](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.15.2/arch-jaguar.img.zst) | [SHA256SUMS](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.15.2/SHA256SUMS) | [2026.10.15.2](https://github.com/jiri-one/jiris-sbc-images/releases/tag/2026.10.15.2) |
+
+License and source notices: [M1S 2026.10.29](notices/2026.10.29-m1s/NOTICE.md),
+[RPi4/M1S 2026.10.14](notices/2026.10.14/NOTICE.md), and
+[JaguarBoard 2026.10.15–15.2](notices/jaguarboard-2026.10.15/NOTICE.md).
 
 Older builds are under [releases](https://github.com/jiri-one/jiris-sbc-images/releases).
 

@@ -43,14 +43,34 @@ A kernel upgrade from 7.2.9 to 7.2.11 and the [kernel fallback](#kernel-fallback
 were checked afterwards. Physical USB-root boot, unattended recovery, Bluetooth,
 GPIO/HATs and graphics acceleration remain unverified. Repeated keyboard reconnection across USB 2
 and USB 3 ports, plus HDMI unplug/replug, passed on this setup without a reboot.
-The final generic image passed offline and generic QEMU checks;
-the physical tests used the maintained installation, rather than flashing that
-final generic image. The image builder now installs the tested Wi-Fi firmware
-and driver settings, but not the test's keepalive; see [Wi-Fi](#wi-fi).
+These checks used the maintained installation. The
+[2026.11.20 release image](#release-image-check) was then flashed and booted on
+the same Pi, including WPA3 Wi-Fi. The image builder installs the tested Wi-Fi
+firmware and driver settings, but not the 48-hour test's keepalive; see
+[Wi-Fi](#wi-fi).
 
-Existing release downloads predate these native-boot, console and power changes.
-Build from current source to include them until a corresponding native release
-is published.
+Release 2026.11.20 is the first native release. Older release downloads contain
+the deprecated UEFI build.
+
+## Release image check
+
+On 20 November 2026 the 2026.11.20 image was configured with
+`scripts/configure-image.py`, written with readback verification to a 256 GB
+Samsung PRO Endurance microSD card and booted on the Pi 4B 8 GB used for the
+tests above.
+
+| Check | Result |
+| --- | --- |
+| First boot | Root grew to 237.7 GiB; keyring initialized after NTP; no failed units |
+| Login | SSH key login as `rpi` with passwordless `sudo` |
+| Startup | Linux reported 10.3 s on the first boot and 7.9 s on the next |
+| Kernel and CPU | 7.3.4-arch1-3; `schedutil` at 600–1800 MHz; no undervoltage alarm |
+| Wi-Fi | A WPA3-only network with `wpa_supplicant`; see [Wi-Fi](#wi-fi) |
+| Reboot with Ethernet unplugged | SSH over Wi-Fi 25 s after the reboot request |
+| Boot updater | A package installation rebuilt the boot files; the next boot used them, with the image's set as fallback |
+
+The 48-hour test, HDMI console, USB keyboard and the fallback switch were not
+repeated on this image.
 
 ## 48-hour stability test
 
@@ -198,9 +218,9 @@ if your board needs GPT or USB boot support.
 
 ## Install
 
-Use your local build's `artifacts/native/`, or a matching native image and
-`SHA256SUMS` once available from
-[releases](https://github.com/jiri-one/jiris-sbc-images/releases). In that directory:
+Download `rpi4-archlinux-ports-native-sd-usb.img.zst` and `SHA256SUMS` from the
+newest Raspberry Pi 4 release in the [download table](../../README.md#download),
+or use your local build's `artifacts/native/`. In that directory:
 
 ```sh
 sha256sum --ignore-missing -c SHA256SUMS
@@ -338,10 +358,64 @@ Raspberry Pi firmware lost none of 3000; switching back to the Ports firmware
 brought the loss back.
 
 Wi-Fi starts soft-blocked, and the image includes `wireless-regdb` but no
-supplicant. To use Wi-Fi, install and configure a supplicant such as
-`wpa_supplicant` or `iwd` over Ethernet, then run `sudo rfkill unblock wifi`.
-Set the country where the Pi operates, for example `WIRELESS_REGDOM="CZ"` in
-`/etc/conf.d/wireless-regdom` or `country=CZ` in the supplicant's configuration.
+supplicant. Over Ethernet, install `wpa_supplicant` and create
+`/etc/wpa_supplicant/wpa_supplicant-wlan0.conf` with mode 600. Replace the
+network name, password and country:
+
+```text
+ctrl_interface=DIR=/run/wpa_supplicant GROUP=wheel
+update_config=0
+country=CZ
+sae_pwe=2
+p2p_disabled=1
+
+network={
+    ssid="NETWORK"
+    key_mgmt=SAE
+    ieee80211w=2
+    sae_password="PASSWORD"
+}
+```
+
+For WPA2, use `key_mgmt=WPA-PSK` and `psk="PASSWORD"` instead. DHCP on Wi-Fi
+needs `/etc/systemd/network/25-wireless.network`. Its higher route metric keeps
+Ethernet preferred while both are connected:
+
+```ini
+[Match]
+Type=wlan
+
+[Network]
+DHCP=yes
+
+[DHCPv4]
+RouteMetric=2048
+```
+
+So that every start unblocks Wi-Fi, whatever rfkill state was saved, add
+`/etc/systemd/system/wpa_supplicant@wlan0.service.d/10-wifi.conf`:
+
+```ini
+[Unit]
+After=systemd-rfkill.service
+
+[Service]
+ExecStartPre=/usr/bin/rfkill unblock wlan
+Restart=on-failure
+RestartSec=5
+```
+
+Set the same country as `WIRELESS_REGDOM="CZ"` in `/etc/conf.d/wireless-regdom`,
+then run `sudo systemctl daemon-reload` and
+`sudo systemctl enable --now wpa_supplicant@wlan0`.
+
+The [release image](#release-image-check) joined a WPA3-only OpenWrt 25.12.6
+network this way, using SAE with hash-to-element and required management frame
+protection. The image's `brcmfmac` options disable the firmware's own SAE, so
+the driver leaves SAE to the supplicant. `iwd` 3.12 could not connect: with
+this driver it uses SAE hunting-and-pecking, while the association request
+signals hash-to-element support. hostapd rejects that combination when the
+access point offers both methods.
 
 The 48-hour test also pinged the gateway over Wi-Fi once per minute. The stock
 firmware of the test router, an ASUS RT-AX53U, disconnected a station after

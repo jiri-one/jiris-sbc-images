@@ -14,8 +14,10 @@ GPL-3.0-or-later. The license text is the repository
 and is also installed in the image as
 `/usr/share/licenses/spdx/GPL-3.0-or-later.txt`. The project scripts installed
 in the image, such as `/usr/local/sbin/rpi4-update-boot`, are shell and Python
-source. The build scripts are in the repository at the commit above.
-Third-party software keeps its own licenses.
+source. The boot partition's `overlays/rpi4-usb-c-data-disable.dtbo` is
+compiled from `boards/raspberry-pi-4/configs/overlays/rpi4-usb-c-data-disable-overlay.dts`.
+The build scripts are in the repository at the commit above. Third-party
+software keeps its own licenses.
 
 ## Packages and license texts
 
@@ -29,7 +31,8 @@ lists all 161 packages with exact versions and license fields extracted from
 the released image's `/var/lib/pacman/local/*/desc`. License labels are copied
 verbatim; they are metadata, not a replacement for the license texts. The
 Raspberry Pi boot and Wi-Fi firmware are installed outside pacman and are
-described below.
+described below. `/usr/share/licenses/rpi4-uefi-firmware/` belongs to the
+deprecated UEFI build; this native image contains none of that firmware.
 
 ## Arch Linux Ports package sources
 
@@ -68,12 +71,24 @@ from `linux-dtbs`.
 ### BusyBox 1.36.1 (mkinitcpio-busybox 1.36.1-1)
 
 - Upstream: https://busybox.net/downloads/busybox-1.36.1.tar.bz2
-- Package recipe history (configuration and packaging changes):
-  https://gitlab.archlinux.org/archlinux/packaging/packages/mkinitcpio-busybox
-- AArch64 forks are linked above. The image package's PKGBUILD SHA256 is
-  `1035d9aabe68fa993c9b290590465cc2748b29a4228b4a0a78a7a7c9fd4055dc`.
+- Arch Linux Ports recipe, including the BusyBox `config`:
+  https://gitlab.archlinux.org/bschnei/mkinitcpio-busybox/-/tree/f09f1d52bfed732e0cd52cd84a7fa8c8670e0e6a
+
+Its PKGBUILD SHA256 matches the package's .BUILDINFO:
+`1035d9aabe68fa993c9b290590465cc2748b29a4228b4a0a78a7a7c9fd4055dc`.
+`config` SHA256:
+`f1a67ecda5b73a50e49953efaaa0be582e4b707cf5a6270519e28ee022098518`.
 
 BusyBox is also part of the initramfs on the boot partition.
+
+### Recipe copies
+
+Neither recipe commit is on a branch of its repository, so copies of the files
+are stored beside this NOTICE in the project repository,
+https://github.com/jiri-one/jiris-sbc-images/tree/2026.11.20/notices/2026.11.20-rpi4/recipes :
+`recipes/linux/PKGBUILD` (as built, with `pkgrel=3`),
+`recipes/linux/config.aarch64`, `recipes/mkinitcpio-busybox/PKGBUILD` and
+`recipes/mkinitcpio-busybox/config`. Their SHA256 values are the ones above.
 
 ## Raspberry Pi firmware
 

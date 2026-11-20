@@ -232,7 +232,8 @@ If the uncompressed `.img` is not already present, decompress it:
 zstd -d --keep rpi4-archlinux-ports-native-sd-usb.img.zst
 ```
 
-From the repository root, configure your public key (replace the image path):
+From the root of a clone of this repository, configure your public key
+(replace the image path):
 
 ```sh
 python3 scripts/configure-image.py /path/to/rpi4-archlinux-ports-native-sd-usb.img \
@@ -377,8 +378,9 @@ network={
 }
 ```
 
-For WPA2, use `key_mgmt=WPA-PSK` and `psk="PASSWORD"` instead. DHCP on Wi-Fi
-needs `/etc/systemd/network/25-wireless.network`. Its higher route metric keeps
+For WPA2, use `key_mgmt=WPA-PSK`, `ieee80211w=1` and `psk="PASSWORD"` instead,
+as in the 48-hour test. DHCP on Wi-Fi needs
+`/etc/systemd/network/25-wireless.network`. Its higher route metrics keep
 Ethernet preferred while both are connected:
 
 ```ini
@@ -389,6 +391,9 @@ Type=wlan
 DHCP=yes
 
 [DHCPv4]
+RouteMetric=2048
+
+[IPv6AcceptRA]
 RouteMetric=2048
 ```
 
@@ -406,8 +411,15 @@ RestartSec=5
 ```
 
 Set the same country as `WIRELESS_REGDOM="CZ"` in `/etc/conf.d/wireless-regdom`,
-then run `sudo systemctl daemon-reload` and
-`sudo systemctl enable --now wpa_supplicant@wlan0`.
+then apply everything:
+
+```sh
+sudo networkctl reload
+sudo systemctl daemon-reload
+sudo systemctl enable --now wpa_supplicant@wlan0
+```
+
+Disconnect Ethernet only after `networkctl status wlan0` shows an address.
 
 The [release image](#release-image-check) joined a WPA3-only OpenWrt 25.12.6
 network this way, using SAE with hash-to-element and required management frame

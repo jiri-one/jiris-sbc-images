@@ -12,7 +12,7 @@ UEFI. Legacy BIOS/CSM boot is not supported.
 
 An existing eMMC installation boots with systemd-boot and the current kernel
 on v1.3 hardware. It passed a [72-hour stability test](#72-hour-stability-test)
-with a Samsung USB charger. The new USB image still needs testing on hardware.
+with a Samsung USB charger.
 
 ## Build
 

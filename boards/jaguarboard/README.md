@@ -132,8 +132,15 @@ On cold boot, the microSD slot may fail to initialize a card with kernel error
 `-84`. About 20 seconds after boot, `jaguar-sd-slot.timer` checks whether the
 slot has detected a card. If none is detected, the service rebinds the slot
 controller once, including when the slot is empty. Other services can start
-independently. Filesystem checks and mounts follow `/etc/fstab`. Check the
-result with `journalctl -b -u jaguar-sd-slot.service`.
+independently. Filesystem checks and mounts follow `/etc/fstab`; give a card
+entry `nofail` and keep any `x-systemd.device-timeout` above about 30 s, or the
+mount gives up before the rebind. Check the result with
+`journalctl -b -u jaguar-sd-slot.service`.
+
+Both defaults come with new images. On an existing install, set
+`JAGUAR_BOOT_DEFAULT=1` and run `sudo jaguar-update-boot`, then copy
+`jaguar-sd-slot` to `/usr/local/sbin/`, its service and timer to
+`/etc/systemd/system/` and run `sudo systemctl enable --now jaguar-sd-slot.timer`.
 
 Automatic probes for nonresponding tablet audio, battery and touch devices on
 the tested v1.3 board are disabled in `/etc/modprobe.d/jaguar-tablet-devices.conf`.

@@ -80,7 +80,7 @@ printf '%%wheel ALL=(ALL:ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/10-wheel
 chmod 440 /etc/sudoers.d/10-wheel
 visudo -cf /etc/sudoers
 systemctl enable sshd getty@tty1.service systemd-networkd systemd-resolved systemd-timesyncd \
-    jaguar-firstboot.service jaguar-firstboot.timer
+    jaguar-firstboot.service jaguar-firstboot.timer jaguar-sd-slot.timer
 # Allow the stock PAM stack to activate homed on demand.
 ln -sfn /usr/lib/systemd/system/systemd-homed.service /etc/systemd/system/dbus-org.freedesktop.home1.service
 ln -sfn /usr/lib/systemd/system/getty@.service /etc/systemd/system/autovt@.service

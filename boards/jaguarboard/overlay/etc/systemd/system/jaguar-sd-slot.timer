@@ -1,0 +1,9 @@
+[Unit]
+Description=Check the JaguarBoard microSD slot after boot
+
+[Timer]
+OnBootSec=20s
+AccuracySec=1s
+
+[Install]
+WantedBy=timers.target

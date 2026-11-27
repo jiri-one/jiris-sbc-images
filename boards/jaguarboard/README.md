@@ -120,13 +120,20 @@ Deep C7/C7S idle states were used during the test;
 
 ### Diagnostics and workarounds
 
-For boards affected by [Bay Trail idle-state issues](https://web.archive.org/web/20170503022532/http://www.jaguarboard.org/index.php/forum/troubleshooting/414-possible-explanation-for-freezing.html),
-an optional workaround is available:
+The default boot entry uses `intel_idle.max_cstate=1` as a workaround for
+[Bay Trail idle-state freezes](https://web.archive.org/web/20170503022532/http://www.jaguarboard.org/index.php/forum/troubleshooting/414-possible-explanation-for-freezing.html).
+A v1.3 board froze after roughly eight days of uptime with deep idle states
+enabled. The workaround's long-term effectiveness on this board remains unverified,
+and it may increase power use. To change the default, set `JAGUAR_BOOT_DEFAULT`
+in `/etc/default/jaguar-boot` to `0` for normal boot, `1` for the workaround or
+`2` for `nomodeset`, then run `sudo jaguar-update-boot`.
 
-Normal boot is first and the default. In `/etc/default/jaguar-boot`, set
-`JAGUAR_BOOT_DEFAULT=1` to try `intel_idle.max_cstate=1`, or `2` for `nomodeset`,
-then run `sudo jaguar-update-boot`; `0` restores normal boot. The C-state workaround
-may increase power use.
+On cold boot, the microSD slot may fail to initialize a card with kernel error
+`-84`. About 20 seconds after boot, `jaguar-sd-slot.timer` checks whether the
+slot has detected a card. If none is detected, the service rebinds the slot
+controller once, including when the slot is empty. Other services can start
+independently. Filesystem checks and mounts follow `/etc/fstab`. Check the
+result with `journalctl -b -u jaguar-sd-slot.service`.
 
 Automatic probes for nonresponding tablet audio, battery and touch devices on
 the tested v1.3 board are disabled in `/etc/modprobe.d/jaguar-tablet-devices.conf`.

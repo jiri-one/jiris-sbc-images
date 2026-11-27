@@ -1,0 +1,7 @@
+[Unit]
+Description=Recover the JaguarBoard microSD slot after cold boot
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/jaguar-sd-slot
+TimeoutStartSec=30s

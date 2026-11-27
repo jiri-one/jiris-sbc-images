@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+shopt -s nullglob
+
+slot=80860F14:02
+driver=/sys/bus/platform/drivers/sdhci-acpi
+
+card_present() {
+    local cards=("$driver/$slot"/mmc_host/mmc*/mmc*:*/type)
+    (( ${#cards[@]} > 0 ))
+}
+
+[[ -d $driver/$slot ]] || exit 0
+card_present && exit 0
+
+echo 'No microSD card detected. Rebinding the slot once.'
+printf '%s\n' "$slot" > "$driver/unbind"
+printf '%s\n' "$slot" > "$driver/bind"
+
+for ((second = 0; second < 10; second++)); do
+    sleep 1
+    if card_present; then
+        echo 'MicroSD card detected after rebind.'
+        exit 0
+    fi
+done
+echo 'No microSD card detected after rebind.'

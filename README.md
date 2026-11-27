@@ -31,9 +31,10 @@ Newest released image for each board:
 | --- | --- | --- | --- |
 | Raspberry Pi 4 | [rpi4-archlinux-ports-native-sd-usb.img.zst](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.11.20/rpi4-archlinux-ports-native-sd-usb.img.zst) | [SHA256SUMS](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.11.20/SHA256SUMS) | [2026.11.20](https://github.com/jiri-one/jiris-sbc-images/releases/tag/2026.11.20) |
 | ODROID-M1S | [odroid-m1s-archlinux-ports-sd-emmc.img.zst](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.29/odroid-m1s-archlinux-ports-sd-emmc.img.zst) | [SHA256SUMS](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.29/SHA256SUMS) | [2026.10.29](https://github.com/jiri-one/jiris-sbc-images/releases/tag/2026.10.29) |
-| JaguarBoard | [arch-jaguar.img.zst](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.15.2/arch-jaguar.img.zst) | [SHA256SUMS](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.10.15.2/SHA256SUMS) | [2026.10.15.2](https://github.com/jiri-one/jiris-sbc-images/releases/tag/2026.10.15.2) |
+| JaguarBoard | [arch-jaguar.img.zst](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.11.27/arch-jaguar.img.zst) | [SHA256SUMS](https://github.com/jiri-one/jiris-sbc-images/releases/download/2026.11.27/SHA256SUMS) | [2026.11.27](https://github.com/jiri-one/jiris-sbc-images/releases/tag/2026.11.27) |
 
-License and source notices: [RPi4 2026.11.20](notices/2026.11.20-rpi4/NOTICE.md),
+License and source notices: [JaguarBoard 2026.11.27](notices/jaguarboard-2026.11.27/NOTICE.md),
+[RPi4 2026.11.20](notices/2026.11.20-rpi4/NOTICE.md),
 [M1S 2026.10.29](notices/2026.10.29-m1s/NOTICE.md),
 [RPi4/M1S 2026.10.14](notices/2026.10.14/NOTICE.md), and
 [JaguarBoard 2026.10.15–15.2](notices/jaguarboard-2026.10.15/NOTICE.md).
